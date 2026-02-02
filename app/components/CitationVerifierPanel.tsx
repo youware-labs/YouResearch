@@ -192,13 +192,11 @@ export default function CitationVerifierPanel({
   });
 
   return (
-    <div className="h-full flex flex-col bg-fill-secondary">
+    <div className="h-full flex flex-col bg-fill-secondary overflow-hidden">
       {/* Header */}
-      <div className="panel-header bg-white border-b border-black/6">
-        <div className="flex items-center justify-between w-full">
-          <h2 className="typo-h4 flex items-center gap-2">
-            📚 Reference Verification
-          </h2>
+      <div className="bg-white border-b border-black/6 flex-shrink-0 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <h2 className="typo-h4">📚 Reference Verification</h2>
           <div className="flex items-center gap-2">
             <button
               onClick={runVerification}
@@ -216,6 +214,9 @@ export default function CitationVerifierPanel({
             </button>
           </div>
         </div>
+        <p className="typo-small text-secondary mt-1">
+          Verify the authenticity and accuracy of your paper citations
+        </p>
       </div>
 
       {/* File selection */}
@@ -234,7 +235,7 @@ export default function CitationVerifierPanel({
           </div>
         </div>
       ) : pairs.length > 1 || !selectedBib ? (
-        <div className="px-4 py-3 bg-white border-b border-black/6">
+        <div className="px-4 py-3 bg-white border-b border-black/6 flex-shrink-0 overflow-hidden">
           <label className="typo-small text-secondary block mb-2">
             Select bibliography file to verify:
           </label>
@@ -249,7 +250,7 @@ export default function CitationVerifierPanel({
                     : 'bg-fill-tertiary hover:bg-fill-quaternary border border-transparent'
                 }`}
               >
-                <FileText size={14} className={selectedBib === pair.bib_file ? 'text-green1' : 'text-tertiary'} />
+                <FileText size={14} className={`flex-shrink-0 ${selectedBib === pair.bib_file ? 'text-green1' : 'text-tertiary'}`} />
                 <div className="flex-1 min-w-0">
                   <div className="typo-small font-mono truncate">{pair.bib_file}</div>
                   {pair.tex_file && (
@@ -285,17 +286,17 @@ export default function CitationVerifierPanel({
           )}
         </div>
       ) : (
-        <div className="px-4 py-2 bg-white border-b border-black/6">
-          <div className="typo-small text-tertiary flex items-center gap-2">
-            <FileText size={14} />
-            <span className="font-mono">{selectedBib}</span>
+        <div className="px-4 py-2 bg-white border-b border-black/6 flex-shrink-0 overflow-hidden">
+          <div className="typo-small text-tertiary flex items-center gap-2 min-w-0">
+            <FileText size={14} className="flex-shrink-0" />
+            <span className="font-mono truncate">{selectedBib}</span>
           </div>
         </div>
       )}
 
       {/* Stats bar - only show when we have results */}
       {results.size > 0 && (
-        <div className="px-4 py-2 bg-white border-b border-black/6 flex items-center gap-4">
+        <div className="px-4 py-2 bg-white border-b border-black/6 flex items-center gap-4 flex-shrink-0 overflow-x-auto">
           <span className="typo-small flex items-center gap-1.5 text-success">
             <CheckCircle size={14} />
             {stats.verified} verified

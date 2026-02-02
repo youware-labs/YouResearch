@@ -72,7 +72,7 @@ DEV_AUTH_BYPASS = os.getenv("DEV_AUTH_BYPASS", "true").lower() in {"1", "true", 
 
 def _is_public_api_path(path: str) -> bool:
     """Check if the path is a public API endpoint that doesn't require auth."""
-    return path in {
+    public_exact = {
         "/api/health",
         "/api/info",
         "/api/labs/authorize",
@@ -80,6 +80,10 @@ def _is_public_api_path(path: str) -> bool:
         "/api/auth/session",
         "/api/auth/logout",
     }
+    public_prefixes = [
+        "/api/vibe-research",  # Vibe research endpoints
+    ]
+    return path in public_exact or any(path.startswith(p) for p in public_prefixes)
 
 
 @app.middleware("http")
@@ -476,10 +480,12 @@ class VibeResearchStartRequest(BaseModel):
     max_papers: int = 100
     max_papers_to_read: int = 30
     target_hypotheses: int = 5
+    provider: Optional[ProviderConfig] = None
 
 
 class VibeResearchRunRequest(BaseModel):
     project_path: str
+    provider: Optional[ProviderConfig] = None
 
 
 class VibeResearchSessionRequest(BaseModel):
@@ -2716,8 +2722,17 @@ async def run_vibe_iteration(session_id: str, request: VibeResearchRunRequest) -
         # Mark session as running
         _running_vibe_sessions[session_id] = True
 
+        # Extract provider config
+        provider_config = None
+        if request.provider:
+            provider_config = {
+                "name": request.provider.name,
+                "model": request.provider.model,
+                "api_key": request.provider.api_key,
+            }
+
         # Create agent in VIBE mode (uses longer timeout)
-        agent = ResearchAgent(mode=ResearchMode.VIBE)
+        agent = ResearchAgent(mode=ResearchMode.VIBE, provider_config=provider_config)
 
         # Determine task based on phase
         phase_tasks = {
@@ -2787,8 +2802,17 @@ async def stream_vibe_research(session_id: str, request: VibeResearchRunRequest)
         nonlocal state
 
         try:
+            # Extract provider config
+            provider_config = None
+            if request.provider:
+                provider_config = {
+                    "name": request.provider.name,
+                    "model": request.provider.model,
+                    "api_key": request.provider.api_key,
+                }
+
             # Create agent in VIBE mode (uses longer timeout)
-            agent = ResearchAgent(mode=ResearchMode.VIBE)
+            agent = ResearchAgent(mode=ResearchMode.VIBE, provider_config=provider_config)
 
             while not state.is_complete:
                 # Yield current status

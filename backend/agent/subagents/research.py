@@ -535,9 +535,10 @@ class ResearchAgent(Subagent[ResearchDeps]):
         - save_to_memory: Persist findings
     """
 
-    def __init__(self, mode: ResearchMode = ResearchMode.CHAT, **kwargs):
+    def __init__(self, mode: ResearchMode = ResearchMode.CHAT, provider_config: dict | None = None, **kwargs):
         self.mode = mode
         self._vibe_state_override: Optional["VibeResearchState"] = None
+        self._provider_config = provider_config  # Store provider config for model creation
 
         # Configure based on mode
         if mode == ResearchMode.VIBE:
@@ -564,8 +565,19 @@ class ResearchAgent(Subagent[ResearchDeps]):
     def _get_model(self):
         """Get the appropriate model for this subagent.
 
-        Both modes use Haiku for cost efficiency and better rate limits.
+        Uses provider_config if provided, otherwise falls back to default haiku model.
         """
+        from agent.providers import get_model
+
+        if self._provider_config:
+            # Use provider config from frontend settings
+            return get_model(
+                provider=self._provider_config.get("name", "openrouter"),
+                model_id=self._provider_config.get("model"),
+                api_key=self._provider_config.get("api_key"),
+            )
+
+        # Fallback to default haiku model
         return get_haiku_model()
 
     async def run(

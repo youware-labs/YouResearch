@@ -1097,6 +1097,11 @@ class ApiClient {
       maxPapers?: number;
       maxPapersToRead?: number;
       targetHypotheses?: number;
+    },
+    provider?: {
+      name: string;
+      model?: string;
+      api_key?: string;
     }
   ): Promise<VibeSession> {
     await this.ensureInitialized();
@@ -1113,6 +1118,7 @@ class ApiClient {
         max_papers: config?.maxPapers ?? 100,
         max_papers_to_read: config?.maxPapersToRead ?? 30,
         target_hypotheses: config?.targetHypotheses ?? 5,
+        provider,
       }),
     });
 
@@ -1203,7 +1209,15 @@ class ApiClient {
   /**
    * Run one iteration of vibe research
    */
-  async runVibeIteration(projectPath: string, sessionId: string): Promise<VibeIterationResult> {
+  async runVibeIteration(
+    projectPath: string,
+    sessionId: string,
+    provider?: {
+      name: string;
+      model?: string;
+      api_key?: string;
+    }
+  ): Promise<VibeIterationResult> {
     await this.ensureInitialized();
 
     const url = `${this.baseUrl}/api/vibe-research/run/${sessionId}`;
@@ -1212,7 +1226,7 @@ class ApiClient {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project_path: projectPath }),
+      body: JSON.stringify({ project_path: projectPath, provider }),
     });
 
     if (!response.ok) {

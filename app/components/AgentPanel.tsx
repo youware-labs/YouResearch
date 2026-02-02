@@ -644,22 +644,12 @@ export default function AgentPanel({
     try {
       const result = await api.listChatSessions(projectPath);
       setChatSessions(result.sessions);
-      // Auto-select the most recent session if requested
+      // Auto-select the most recent session if requested, but DON'T load messages
+      // This prevents the agent from continuing a previous conversation context
+      // User can explicitly select a session to continue it
       if (autoSelect && result.sessions.length > 0) {
-        setSelectedChatSession(result.sessions[0].session_id);
-        // Load messages for the auto-selected session
-        try {
-          const session = await api.getChatSession(projectPath, result.sessions[0].session_id);
-          const uiMessages: Message[] = session.messages.map((msg, index) => ({
-            id: `loaded-${index}`,
-            role: msg.role,
-            parts: [{ type: 'text', content: msg.content }],
-            timestamp: new Date(),
-          }));
-          setMessages(uiMessages);
-        } catch (e) {
-          console.error('Failed to load auto-selected session:', e);
-        }
+        // Don't auto-select - let user start fresh or explicitly choose to continue
+        // setSelectedChatSession(result.sessions[0].session_id);
       }
     } catch (e) {
       console.error('Failed to load chat sessions:', e);
@@ -806,7 +796,12 @@ export default function AgentPanel({
     if (!projectPath || !newResearchTopic.trim()) return;
     setIsStartingResearch(true);
     try {
-      const session = await api.startVibeResearch(projectPath, newResearchTopic.trim());
+      const session = await api.startVibeResearch(
+        projectPath,
+        newResearchTopic.trim(),
+        undefined,
+        getProviderConfigForRequest(providerSettings)
+      );
       setSelectedVibeSession(session.session_id);
       setShowNewResearchInput(false);
       setNewResearchTopic('');
@@ -1761,12 +1756,12 @@ export default function AgentPanel({
         /* Vibe Research Mode */
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Session selector */}
-          <div className="p-3 border-b border-black/6 bg-white">
+          <div className="p-3 border-b border-black/6 bg-white flex-shrink-0">
             <div className="flex items-center gap-2">
               <select
                 value={selectedVibeSession || ''}
                 onChange={(e) => setSelectedVibeSession(e.target.value || null)}
-                className="flex-1 rounded-yw-md border border-black/12 bg-white px-3 py-2 typo-small focus:outline-none focus:ring-1 focus:ring-green2/20"
+                className="flex-1 min-w-0 rounded-yw-md border border-black/12 bg-white px-3 py-2 typo-small focus:outline-none focus:ring-1 focus:ring-green2/20"
                 disabled={isLoadingSessions}
               >
                 <option value="">Select a research session...</option>
@@ -1835,6 +1830,7 @@ export default function AgentPanel({
                 loadVibeSessions();
               }}
               onOpenFile={onOpenFile}
+              provider={getProviderConfigForRequest(providerSettings)}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center">
@@ -1844,7 +1840,7 @@ export default function AgentPanel({
                 </div>
                 <h3 className="typo-h3 mb-2">Vibe Research</h3>
                 <p className="typo-small text-secondary mb-4">
-                  AI-led autonomous research that discovers papers, identifies gaps, and generates novel hypotheses
+                  Enter a research topic and AI will generate breakthrough ideas and novel hypotheses
                 </p>
                 <button
                   onClick={() => setShowNewResearchInput(true)}

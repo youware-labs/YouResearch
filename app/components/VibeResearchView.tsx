@@ -24,6 +24,11 @@ interface VibeResearchViewProps {
   onComplete?: () => void;
   onDelete?: () => void;
   onOpenFile?: (filePath: string) => void;
+  provider?: {
+    name: string;
+    model?: string;
+    api_key?: string;
+  };
 }
 
 // Phase configuration
@@ -143,7 +148,7 @@ function HypothesisItem({ hypothesis }: { hypothesis: VibeHypothesis }) {
   );
 }
 
-export default function VibeResearchView({ projectPath, sessionId, onComplete, onDelete, onOpenFile }: VibeResearchViewProps) {
+export default function VibeResearchView({ projectPath, sessionId, onComplete, onDelete, onOpenFile, provider }: VibeResearchViewProps) {
   const [state, setState] = useState<VibeState | null>(null);
   const [status, setStatus] = useState<VibeStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -201,7 +206,7 @@ export default function VibeResearchView({ projectPath, sessionId, onComplete, o
     setError(null);
 
     try {
-      const result = await api.runVibeIteration(projectPath, sessionId);
+      const result = await api.runVibeIteration(projectPath, sessionId, provider);
       setLastOutput(result.output);
 
       // Reload state after iteration
