@@ -1,0 +1,817 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Streamdown styles for Markdown preview */
+@source "../node_modules/streamdown/dist/*.js";
+
+/* ============================================================================
+   YouWare Design System - Global Styles
+   ============================================================================ */
+
+:root {
+  /* YouWare Brand Colors */
+  --yw-green1: #2e4226;
+  --yw-green2: #55644a;
+  --yw-green3: #e0e7d0;
+  --yw-orange1: #a55500;
+  --yw-orange2: #ffd15d;
+
+  /* Surfaces */
+  --yw-fill-primary: #ffffff;
+  --yw-fill-secondary: #f6f4f1;
+  --yw-sidebar-bg: #F1EFEC;
+
+  /* Text */
+  --yw-text-primary: rgba(0, 0, 0, 0.95);
+  --yw-text-secondary: rgba(0, 0, 0, 0.60);
+  --yw-text-tertiary: rgba(0, 0, 0, 0.40);
+
+  /* Opacity-based neutrals */
+  --yw-border-light: rgba(0, 0, 0, 0.06);
+  --yw-border-medium: rgba(0, 0, 0, 0.12);
+  --yw-hover-light: rgba(0, 0, 0, 0.03);
+  --yw-hover-medium: rgba(0, 0, 0, 0.06);
+  --yw-bg-light: rgba(0, 0, 0, 0.06);
+  --yw-bg-medium: rgba(0, 0, 0, 0.12);
+
+  /* Editor (dark theme for code) */
+  --editor-bg: #1e1e2e;
+  --editor-surface: #282838;
+  --editor-border: #3d3d5c;
+  --editor-text: #cdd6f4;
+  --editor-muted: #6c7086;
+  --editor-accent: #89b4fa;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  background-color: var(--yw-fill-secondary);
+  color: var(--yw-text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================================
+   YouWare Typography Utilities
+   ============================================================================ */
+
+@layer utilities {
+  .typo-title-hero {
+    font-size: 72px;
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  .typo-title-page {
+    font-size: 48px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
+
+  .typo-h1 {
+    font-size: 32px;
+    font-weight: 500;
+    line-height: 1.25;
+  }
+
+  .typo-h2 {
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .typo-h3 {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .typo-ex-large {
+    font-size: 20px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  .typo-ex-large-strong {
+    font-size: 20px;
+    font-weight: 560;
+    line-height: 1.5;
+  }
+
+  .typo-large {
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  .typo-large-strong {
+    font-size: 16px;
+    font-weight: 560;
+    line-height: 1.5;
+  }
+
+  .typo-body {
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  .typo-body-strong {
+    font-size: 14px;
+    font-weight: 580;
+    line-height: 1.5;
+  }
+
+  .typo-small {
+    font-size: 12px;
+    font-weight: 420;
+    line-height: 1.4;
+  }
+
+  .typo-small-strong {
+    font-size: 12px;
+    font-weight: 580;
+    line-height: 1.4;
+  }
+
+  .typo-ex-small {
+    font-size: 10px;
+    font-weight: 420;
+    line-height: 1.4;
+  }
+
+  .typo-code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+}
+
+/* ============================================================================
+   Electron Titlebar
+   ============================================================================ */
+
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* ============================================================================
+   Custom Scrollbar (Light Theme)
+   ============================================================================ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* Dark scrollbar for editor areas */
+.dark-scrollbar::-webkit-scrollbar-track {
+  background: var(--editor-bg);
+}
+
+.dark-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--editor-border);
+}
+
+.dark-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--editor-muted);
+}
+
+/* ============================================================================
+   Monaco Editor Overrides (Keep Dark)
+   ============================================================================ */
+
+.monaco-editor {
+  background-color: var(--editor-surface) !important;
+}
+
+.monaco-editor .margin {
+  background-color: var(--editor-surface) !important;
+}
+
+/* SyncTeX highlight (PDF to source navigation) */
+.monaco-editor .synctex-highlight-line {
+  background-color: rgba(255, 213, 0, 0.15) !important;
+  animation: synctex-pulse-line 2s ease-out;
+}
+
+.monaco-editor .synctex-highlight-word {
+  background-color: rgba(255, 180, 0, 0.5) !important;
+  border-radius: 3px;
+  animation: synctex-pulse-word 2s ease-out;
+}
+
+.monaco-editor .synctex-highlight-word-inline {
+  background-color: rgba(255, 180, 0, 0.6) !important;
+  border-bottom: 2px solid #ff9500;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+.monaco-editor .synctex-highlight-glyph {
+  background-color: #ffd500;
+  width: 4px !important;
+  margin-left: 3px;
+  border-radius: 2px;
+}
+
+@keyframes synctex-pulse-line {
+  0% {
+    background-color: rgba(255, 213, 0, 0.3);
+  }
+  100% {
+    background-color: rgba(255, 213, 0, 0);
+  }
+}
+
+@keyframes synctex-pulse-word {
+  0% {
+    background-color: rgba(255, 180, 0, 0.8);
+  }
+  50% {
+    background-color: rgba(255, 180, 0, 0.5);
+  }
+  100% {
+    background-color: rgba(255, 180, 0, 0);
+  }
+}
+
+/* ============================================================================
+   PDF Viewer
+   ============================================================================ */
+
+.pdf-container {
+  background-color: #e8e6e3;
+}
+
+/* PDF Text Layer - make text selectable for SyncTeX */
+.react-pdf__Page__textContent {
+  cursor: text;
+}
+
+.react-pdf__Page__textContent span {
+  cursor: text;
+}
+
+.react-pdf__Page__textContent span::selection {
+  background-color: rgba(255, 180, 0, 0.4);
+}
+
+/* ============================================================================
+   Markdown Preview Styles
+   ============================================================================ */
+
+.markdown-preview-content {
+  color: #1a1a1a;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.markdown-preview-content h1,
+.markdown-preview-content h2,
+.markdown-preview-content h3,
+.markdown-preview-content h4,
+.markdown-preview-content h5,
+.markdown-preview-content h6 {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  color: #111;
+}
+
+.markdown-preview-content h1 {
+  font-size: 2em;
+  border-bottom: 1px solid #e5e5e5;
+  padding-bottom: 0.3em;
+}
+
+.markdown-preview-content h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid #e5e5e5;
+  padding-bottom: 0.3em;
+}
+
+.markdown-preview-content h3 {
+  font-size: 1.25em;
+}
+
+.markdown-preview-content p {
+  margin-bottom: 1em;
+}
+
+.markdown-preview-content a {
+  color: var(--yw-green1);
+  text-decoration: underline;
+}
+
+.markdown-preview-content a:hover {
+  color: var(--yw-green2);
+}
+
+.markdown-preview-content code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.9em;
+  background-color: #f5f5f5;
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+}
+
+.markdown-preview-content pre {
+  background-color: #f8f8f8;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 1em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.markdown-preview-content pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.85em;
+}
+
+.markdown-preview-content blockquote {
+  border-left: 4px solid var(--yw-green2);
+  padding-left: 1em;
+  margin: 1em 0;
+  color: #555;
+  font-style: italic;
+}
+
+.markdown-preview-content ul,
+.markdown-preview-content ol {
+  margin: 1em 0;
+  padding-left: 2em;
+}
+
+.markdown-preview-content li {
+  margin-bottom: 0.5em;
+}
+
+.markdown-preview-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+
+.markdown-preview-content th,
+.markdown-preview-content td {
+  border: 1px solid #e5e5e5;
+  padding: 0.5em 1em;
+  text-align: left;
+}
+
+.markdown-preview-content th {
+  background-color: #f8f8f8;
+  font-weight: 600;
+}
+
+.markdown-preview-content tr:nth-child(even) {
+  background-color: #fafafa;
+}
+
+.markdown-preview-content hr {
+  border: none;
+  border-top: 1px solid #e5e5e5;
+  margin: 2em 0;
+}
+
+.markdown-preview-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+/* ============================================================================
+   Agent Chat Styles (Light Theme)
+   ============================================================================ */
+
+.agent-message {
+  border-radius: 16px;
+  padding: 12px;
+}
+
+.agent-message-user {
+  background-color: rgba(224, 231, 208, 0.5);
+  border: 1px solid rgba(85, 100, 74, 0.2);
+}
+
+.agent-message-assistant {
+  background-color: white;
+  border: 1px solid var(--yw-border-light);
+}
+
+.agent-tool-call {
+  background-color: var(--yw-fill-secondary);
+  border-radius: 10px;
+  padding: 8px;
+  margin: 4px 0;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  border: 1px solid var(--yw-border-light);
+}
+
+/* ============================================================================
+   File Tree Styles (Light Theme)
+   ============================================================================ */
+
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 200ms;
+}
+
+.file-tree-item:hover {
+  background-color: var(--yw-hover-light);
+}
+
+.file-tree-item.selected {
+  background-color: var(--yw-green3);
+  color: var(--yw-green1);
+}
+
+/* ============================================================================
+   Button Styles
+   ============================================================================ */
+
+.btn-primary {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 9999px;
+  background-color: var(--yw-green1);
+  padding: 0 16px;
+  color: white;
+  font-size: 14px;
+  font-weight: 580;
+  transition: opacity 200ms;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.btn-secondary {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 9999px;
+  background-color: var(--yw-bg-light);
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 580;
+  transition: background-color 200ms;
+}
+
+.btn-secondary:hover {
+  background-color: var(--yw-bg-medium);
+}
+
+.btn-ghost {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 14px;
+  font-weight: 400;
+  transition: background-color 200ms;
+}
+
+.btn-ghost:hover {
+  background-color: var(--yw-hover-light);
+}
+
+.btn-icon {
+  display: flex;
+  height: 32px;
+  width: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  transition: background-color 200ms;
+}
+
+.btn-icon:hover {
+  background-color: var(--yw-hover-light);
+}
+
+/* ============================================================================
+   Input Styles
+   ============================================================================ */
+
+.input-field {
+  height: 40px;
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--yw-border-medium);
+  background-color: white;
+  padding: 0 12px;
+  font-size: 14px;
+  font-weight: 400;
+  transition: border-color 200ms;
+}
+
+.input-field::placeholder {
+  color: var(--yw-text-tertiary);
+}
+
+.input-field:focus {
+  border-color: var(--yw-green2);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(85, 100, 74, 0.2);
+}
+
+/* ============================================================================
+   Card Styles
+   ============================================================================ */
+
+.card {
+  border-radius: 16px;
+  background-color: white;
+  border: 1px solid var(--yw-border-light);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 300ms;
+}
+
+.card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* ============================================================================
+   Panel Styles
+   ============================================================================ */
+
+.panel {
+  background-color: white;
+  border-right: 1px solid var(--yw-border-light);
+}
+
+.panel-header {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--yw-border-light);
+}
+
+.panel-header-title {
+  font-size: 14px;
+  font-weight: 580;
+  color: var(--yw-text-primary);
+}
+
+/* ============================================================================
+   Status Badge
+   ============================================================================ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 580;
+}
+
+.badge-success {
+  background-color: var(--yw-green3);
+  color: var(--yw-green1);
+}
+
+.badge-warning {
+  background-color: rgba(255, 209, 93, 0.3);
+  color: var(--yw-orange1);
+}
+
+.badge-error {
+  background-color: rgba(212, 39, 39, 0.1);
+  color: #d42727;
+}
+
+/* ============================================================================
+   Landing Page - Ensure content visibility
+   ============================================================================ */
+
+/* Animated elements should be visible even if JS fails */
+.feature-card,
+.workflow-step,
+.writing-tool {
+  /* These will be animated by GSAP, but should be visible by default */
+}
+
+/* ============================================================================
+   Animations
+   ============================================================================ */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.2s ease-out;
+}
+
+.animate-fade-in-down {
+  animation: fadeInDown 0.2s ease-out;
+}
+
+/* ============================================================================
+   Vibe Research Styles
+   ============================================================================ */
+
+/* Phase badges */
+.badge-phase-scoping {
+  background-color: rgba(147, 51, 234, 0.1);
+  color: rgb(126, 34, 206);
+}
+
+.badge-phase-discovery {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: rgb(37, 99, 235);
+}
+
+.badge-phase-synthesis {
+  background-color: rgba(16, 185, 129, 0.1);
+  color: rgb(5, 150, 105);
+}
+
+.badge-phase-ideation {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: rgb(217, 119, 6);
+}
+
+.badge-phase-evaluation {
+  background-color: rgba(249, 115, 22, 0.1);
+  color: rgb(234, 88, 12);
+}
+
+.badge-phase-complete {
+  background-color: var(--yw-green3);
+  color: var(--yw-green1);
+}
+
+/* Secondary badge style */
+.badge-secondary {
+  background-color: var(--yw-bg-light);
+  color: var(--yw-text-secondary);
+}
+
+/* Confidence badges */
+.badge-confidence-high {
+  background-color: rgba(16, 185, 129, 0.1);
+  color: rgb(5, 150, 105);
+}
+
+.badge-confidence-medium {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: rgb(217, 119, 6);
+}
+
+.badge-confidence-low {
+  background-color: var(--yw-bg-light);
+  color: var(--yw-text-secondary);
+}
+
+/* Progress bar */
+.vibe-progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background-color: var(--yw-fill-secondary);
+  overflow: hidden;
+}
+
+.vibe-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background-color: var(--yw-green2);
+  transition: width 0.3s ease-out;
+}
+
+/* Score display */
+.vibe-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 580;
+  background-color: var(--yw-bg-light);
+  color: var(--yw-text-secondary);
+}
+
+.vibe-score-high {
+  background-color: rgba(16, 185, 129, 0.1);
+  color: rgb(5, 150, 105);
+}
+
+.vibe-score-medium {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: rgb(217, 119, 6);
+}
+
+.vibe-score-low {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: rgb(220, 38, 38);
+}
+
+/* Collapsible sections */
+.vibe-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  cursor: pointer;
+  transition: background-color 200ms;
+}
+
+.vibe-section-header:hover {
+  background-color: var(--yw-hover-light);
+}
+
+/* Line clamp utilities */
+.line-clamp-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

@@ -1,0 +1,63 @@
+# Git
+.git
+.gitignore
+
+# Node.js
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Next.js
+.next
+out
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Build artifacts
+dist
+build
+
+# Backend (deployed separately)
+backend/
+sandbox/
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test files
+__tests__
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+coverage/
+
+# Electron (not needed for web deployment)
+app/main/
+app/dist/
+*.dmg
+*.app
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Other
+projects/
+.cursor/

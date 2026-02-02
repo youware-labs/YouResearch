@@ -1,0 +1,40 @@
+# API Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+sse-starlette>=1.8.0
+
+# Data validation
+pydantic>=2.5.0
+
+# Agent (Phase 2)
+pydantic-ai>=0.0.14
+anthropic>=0.40.0
+
+# Tool system
+pluggy>=1.3.0
+
+# HTTP client
+httpx>=0.26.0
+
+# Research tools (Phase 3)
+arxiv>=2.1.0
+PyMuPDF>=1.24.0  # PDF text extraction (lighter than marker-pdf)
+ddgs>=7.0.0  # Web search for academic papers
+
+# Docker
+docker>=7.0.0
+
+# Git
+gitpython>=3.1.41
+
+# LaTeX parsing
+pylatexenc>=2.10
+
+# Citation management (skillsbench)
+requests>=2.31.0  # HTTP client for citation APIs
+scholarly>=1.7.0  # Google Scholar API wrapper
+beautifulsoup4>=4.12.0  # HTML parsing for Google Scholar scraping
+
+# Utils
+python-multipart>=0.0.6
+python-dotenv>=1.0.0
