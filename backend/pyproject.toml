@@ -1,0 +1,71 @@
+[project]
+name = "aura-backend"
+version = "0.1.0"
+description = "Aura LaTeX IDE Backend with AI Agent"
+requires-python = ">=3.11"
+dependencies = [
+    # API Framework
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "sse-starlette>=1.8.0",
+
+    # Data validation
+    "pydantic>=2.5.0",
+
+    # Agent (PydanticAI)
+    "pydantic-ai>=0.0.14",
+    "anthropic>=0.40.0",
+
+    # Tool system
+    "pluggy>=1.3.0",
+
+    # HTTP client
+    "httpx>=0.26.0",
+
+    # Authentication
+    "PyJWT>=2.8.0",
+    "cryptography>=42.0.0",
+
+    # Research tools
+    "arxiv>=2.1.0",
+    "PyMuPDF>=1.24.0",
+    "ddgs>=7.0.0",
+
+    # Citation management (Google Scholar)
+    "requests>=2.31.0",
+    "scholarly>=1.7.0",
+    "beautifulsoup4>=4.12.0",
+
+    # LaTeX parsing
+    "pylatexenc>=2.10",
+
+    # Docker
+    "docker>=7.0.0",
+
+    # Git
+    "gitpython>=3.1.41",
+
+    # Utils
+    "python-multipart>=0.0.6",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.uv]
+dev-dependencies = [
+    "pyinstaller>=6.18.0",
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
