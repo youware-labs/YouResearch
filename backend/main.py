@@ -1819,10 +1819,12 @@ class UpdateStepRequest(BaseModel):
     output: Optional[str] = None
     error: Optional[str] = None
     session_id: Optional[str] = None
+    project_path: Optional[str] = None  # For persistence
 
 
 class PlanSessionRequest(BaseModel):
     session_id: Optional[str] = None
+    project_path: Optional[str] = None  # For persistence
 
 
 @app.post("/api/planning/create")
@@ -1859,6 +1861,7 @@ async def create_plan_endpoint(request: CreatePlanRequest) -> dict:
             original_request=request.task,
             steps=[s.to_dict() for s in plan.steps],
             session_id=request.session_id or "default",
+            project_path=request.project_path,
             context=plan.context,
             complexity=plan.complexity,
             estimated_files=plan.estimated_files,
@@ -1972,6 +1975,7 @@ async def complete_step_endpoint(request: UpdateStepRequest) -> dict:
     await plan_manager.complete_current_step(
         output=request.output or "",
         session_id=session_id,
+        project_path=request.project_path,
     )
 
     # Refresh plan
@@ -1980,7 +1984,7 @@ async def complete_step_endpoint(request: UpdateStepRequest) -> dict:
     # Start next step if plan not complete
     next_step = None
     if plan.status != PlanStatus.COMPLETED:
-        next_step = await plan_manager.start_next_step(session_id)
+        next_step = await plan_manager.start_next_step(session_id, project_path=request.project_path)
 
     return {
         "success": True,
@@ -2013,6 +2017,7 @@ async def fail_step_endpoint(request: UpdateStepRequest) -> dict:
     await plan_manager.fail_current_step(
         error=request.error or "Step failed",
         session_id=session_id,
+        project_path=request.project_path,
     )
 
     return {
@@ -2046,10 +2051,11 @@ async def skip_step_endpoint(request: UpdateStepRequest) -> dict:
         StepStatus.SKIPPED,
         request.output or "Skipped",
         session_id=session_id,
+        project_path=request.project_path,
     )
 
     # Start next step
-    next_step = await plan_manager.start_next_step(session_id)
+    next_step = await plan_manager.start_next_step(session_id, project_path=request.project_path)
 
     return {
         "success": True,
@@ -2073,7 +2079,7 @@ async def cancel_plan_endpoint(request: PlanSessionRequest) -> dict:
         raise HTTPException(status_code=404, detail="No active plan")
 
     progress = plan.progress
-    await plan_manager.cancel_plan(session_id)
+    await plan_manager.cancel_plan(session_id, project_path=request.project_path)
 
     return {
         "success": True,

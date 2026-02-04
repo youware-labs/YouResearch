@@ -67,6 +67,7 @@ class ChatSession:
     Represents a persistent chat session stored in {projectPath}/.aura/chat_session_{id}.json.
 
     Each session stores the full PydanticAI message history for conversation continuity.
+    Also stores active execution plan and plan history.
     """
     session_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -75,6 +76,8 @@ class ChatSession:
     messages: list[dict] = field(default_factory=list)
     updated_at: str = ""
     message_count: int = 0
+    active_plan: dict | None = None  # Currently executing plan
+    plan_history: list[dict] = field(default_factory=list)  # Completed/cancelled plans
 
     def __post_init__(self):
         if not self.updated_at:
@@ -221,6 +224,8 @@ class ChatSession:
             "name": self.name,
             "message_count": self.message_count,
             "messages": self.messages,
+            "active_plan": self.active_plan,
+            "plan_history": self.plan_history,
         }
 
         session_file.write_text(json.dumps(data, indent=2))
@@ -244,6 +249,8 @@ class ChatSession:
                 project_path=project_path,
                 messages=data.get("messages", []),
                 message_count=data.get("message_count", 0),
+                active_plan=data.get("active_plan"),  # None if not present (backward compat)
+                plan_history=data.get("plan_history", []),  # Empty list if not present
             )
             return session
         except Exception as e:
@@ -303,6 +310,21 @@ class ChatSession:
             "updated_at": self.updated_at,
             "message_count": self.message_count,
         }
+
+    def set_active_plan(self, plan_dict: dict | None) -> None:
+        """Set the active plan for this session."""
+        self.active_plan = plan_dict
+        self.updated_at = datetime.now().isoformat()
+
+    def archive_plan(self) -> None:
+        """Move active plan to history and clear it."""
+        if self.active_plan:
+            self.plan_history.append(self.active_plan)
+            # Keep only last 10 plans in history
+            if len(self.plan_history) > 10:
+                self.plan_history = self.plan_history[-10:]
+            self.active_plan = None
+            self.updated_at = datetime.now().isoformat()
 
 
 def get_session_history_from_disk(project_path: str, session_id: str) -> list:
@@ -794,6 +816,12 @@ async def stream_agent_response(
     if enable_planning:
         from agent.planning import get_plan_manager
         plan_manager = get_plan_manager()
+
+        # Load any existing plan from session
+        effective_session_id = session_id or "default"
+        existing_plan = await plan_manager.load_from_session(effective_session_id, project_path)
+        if existing_plan:
+            logger.info(f"Restored plan '{existing_plan.plan_id}' from session {effective_session_id}")
 
         # Set up callbacks to emit plan events if we have an event queue
         if event_queue:

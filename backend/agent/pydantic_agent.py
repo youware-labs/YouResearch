@@ -1613,6 +1613,7 @@ Try providing more specific details about what you want to accomplish, or procee
         # Store the plan in the manager
         plan_manager = ctx.deps.plan_manager or get_plan_manager()
         session_id = ctx.deps.session_id
+        project_path = ctx.deps.project_path
 
         # Register the plan
         await plan_manager.create_plan(
@@ -1620,6 +1621,7 @@ Try providing more specific details about what you want to accomplish, or procee
             original_request=task_description,
             steps=[s.to_dict() for s in plan.steps],
             session_id=session_id,
+            project_path=project_path,
             context=plan.context,
             complexity=plan.complexity,
             estimated_files=plan.estimated_files,
@@ -1685,6 +1687,7 @@ async def start_plan_execution(ctx: RunContext[AuraDeps]) -> str:
 
     plan_manager = ctx.deps.plan_manager or get_plan_manager()
     session_id = ctx.deps.session_id
+    project_path = ctx.deps.project_path
 
     plan = await plan_manager.get_plan(session_id)
 
@@ -1695,10 +1698,10 @@ async def start_plan_execution(ctx: RunContext[AuraDeps]) -> str:
         return f"Plan is already {plan.status.value}. Cannot start."
 
     # Approve and start
-    await plan_manager.approve_plan(session_id)
+    await plan_manager.approve_plan(session_id, project_path=project_path)
 
     # Get first step
-    step = await plan_manager.start_next_step(session_id)
+    step = await plan_manager.start_next_step(session_id, project_path=project_path)
 
     if not step:
         return "No steps to execute in this plan."
@@ -1739,6 +1742,7 @@ async def complete_plan_step(
 
     plan_manager = ctx.deps.plan_manager or get_plan_manager()
     session_id = ctx.deps.session_id
+    project_path = ctx.deps.project_path
 
     plan = await plan_manager.get_plan(session_id)
 
@@ -1750,7 +1754,7 @@ async def complete_plan_step(
         return "No step currently in progress."
 
     # Complete the current step
-    await plan_manager.complete_current_step(summary, session_id)
+    await plan_manager.complete_current_step(summary, session_id, project_path=project_path)
 
     # Refresh plan
     plan = await plan_manager.get_plan(session_id)
@@ -1768,7 +1772,7 @@ The task "{plan.goal}" has been accomplished.
 """
 
     # Start next step
-    next_step = await plan_manager.start_next_step(session_id)
+    next_step = await plan_manager.start_next_step(session_id, project_path=project_path)
 
     if not next_step:
         progress = plan.progress
@@ -1816,6 +1820,7 @@ async def fail_plan_step(
 
     plan_manager = ctx.deps.plan_manager or get_plan_manager()
     session_id = ctx.deps.session_id
+    project_path = ctx.deps.project_path
 
     plan = await plan_manager.get_plan(session_id)
 
@@ -1827,7 +1832,7 @@ async def fail_plan_step(
         return "No step currently in progress."
 
     # Mark as failed
-    await plan_manager.fail_current_step(error, session_id)
+    await plan_manager.fail_current_step(error, session_id, project_path=project_path)
 
     return f"""# Step Failed ❌
 
@@ -1865,6 +1870,7 @@ async def skip_plan_step(
 
     plan_manager = ctx.deps.plan_manager or get_plan_manager()
     session_id = ctx.deps.session_id
+    project_path = ctx.deps.project_path
 
     plan = await plan_manager.get_plan(session_id)
 
@@ -1877,11 +1883,11 @@ async def skip_plan_step(
 
     # Mark as skipped
     await plan_manager.update_step(
-        current.step_id, StepStatus.SKIPPED, reason, session_id=session_id
+        current.step_id, StepStatus.SKIPPED, reason, session_id=session_id, project_path=project_path
     )
 
     # Get next step
-    next_step = await plan_manager.start_next_step(session_id)
+    next_step = await plan_manager.start_next_step(session_id, project_path=project_path)
 
     if not next_step:
         return f"Step skipped. No more steps available. Use `get_current_plan` to see status."
@@ -1913,13 +1919,14 @@ async def abandon_plan(ctx: RunContext[AuraDeps]) -> str:
 
     plan_manager = ctx.deps.plan_manager or get_plan_manager()
     session_id = ctx.deps.session_id
+    project_path = ctx.deps.project_path
 
     plan = await plan_manager.get_plan(session_id)
 
     if not plan:
         return "No active plan to abandon."
 
-    await plan_manager.cancel_plan(session_id)
+    await plan_manager.cancel_plan(session_id, project_path=project_path)
 
     return f"""# Plan Abandoned
 

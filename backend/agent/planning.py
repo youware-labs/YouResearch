@@ -444,6 +444,7 @@ class PlanManager:
         original_request: str,
         steps: list[dict],
         session_id: str = "default",
+        project_path: str | None = None,
         **kwargs,
     ) -> Plan:
         """
@@ -454,6 +455,7 @@ class PlanManager:
             original_request: The user's original request
             steps: List of step dictionaries
             session_id: Session identifier
+            project_path: Path to project for persistence (optional)
             **kwargs: Additional plan attributes
 
         Returns:
@@ -487,6 +489,10 @@ class PlanManager:
 
             logger.info(f"Created plan '{plan.plan_id}' with {len(plan.steps)} steps")
 
+            # Persist to session file if project_path provided
+            if project_path:
+                await self._persist_plan(plan, session_id, project_path)
+
             if self._on_plan_created:
                 await self._on_plan_created(plan)
 
@@ -503,6 +509,7 @@ class PlanManager:
         output: str = "",
         error: str | None = None,
         session_id: str = "default",
+        project_path: str | None = None,
     ) -> bool:
         """
         Update a step's status.
@@ -513,6 +520,7 @@ class PlanManager:
             output: Output from execution
             error: Error message if failed
             session_id: Session identifier
+            project_path: Path to project for persistence (optional)
 
         Returns:
             True if updated, False if step not found
@@ -529,6 +537,10 @@ class PlanManager:
             old_status = step.status
             plan.update_step_status(step_id, status, output, error)
 
+            # Persist after update
+            if project_path:
+                await self._persist_plan(plan, session_id, project_path)
+
             # Emit events
             if status == StepStatus.IN_PROGRESS and self._on_step_started:
                 await self._on_step_started(plan, step)
@@ -541,11 +553,14 @@ class PlanManager:
                         await self._on_plan_completed(plan)
                     # Archive completed/failed plans to history
                     self._archive_plan(session_id, plan)
+                    # Also archive in session file
+                    if project_path:
+                        await self._archive_plan_to_session(session_id, project_path)
 
             logger.info(f"Step '{step.title}' status: {old_status.value} -> {status.value}")
             return True
 
-    async def start_next_step(self, session_id: str = "default") -> PlanStep | None:
+    async def start_next_step(self, session_id: str = "default", project_path: str | None = None) -> PlanStep | None:
         """
         Get and start the next pending step.
 
@@ -562,6 +577,10 @@ class PlanManager:
                 step.mark_started()
                 plan.current_step_index = step.step_number - 1
 
+                # Persist after starting step
+                if project_path:
+                    await self._persist_plan(plan, session_id, project_path)
+
                 if self._on_step_started:
                     await self._on_step_started(plan, step)
 
@@ -571,6 +590,7 @@ class PlanManager:
         self,
         output: str = "",
         session_id: str = "default",
+        project_path: str | None = None,
     ) -> bool:
         """Complete the current in-progress step."""
         plan = self._plans.get(session_id)
@@ -582,13 +602,14 @@ class PlanManager:
             return False
 
         return await self.update_step(
-            step.step_id, StepStatus.COMPLETED, output, session_id=session_id
+            step.step_id, StepStatus.COMPLETED, output, session_id=session_id, project_path=project_path
         )
 
     async def fail_current_step(
         self,
         error: str,
         session_id: str = "default",
+        project_path: str | None = None,
     ) -> bool:
         """Mark the current step as failed."""
         plan = self._plans.get(session_id)
@@ -597,10 +618,10 @@ class PlanManager:
 
         step = plan.current_step
         return await self.update_step(
-            step.step_id, StepStatus.FAILED, error=error, session_id=session_id
+            step.step_id, StepStatus.FAILED, error=error, session_id=session_id, project_path=project_path
         )
 
-    async def approve_plan(self, session_id: str = "default") -> bool:
+    async def approve_plan(self, session_id: str = "default", project_path: str | None = None) -> bool:
         """Approve a plan for execution."""
         async with self._lock:
             plan = self._plans.get(session_id)
@@ -609,9 +630,14 @@ class PlanManager:
 
             plan.status = PlanStatus.APPROVED
             plan.updated_at = datetime.now(timezone.utc)
+
+            # Persist approval
+            if project_path:
+                await self._persist_plan(plan, session_id, project_path)
+
             return True
 
-    async def cancel_plan(self, session_id: str = "default") -> bool:
+    async def cancel_plan(self, session_id: str = "default", project_path: str | None = None) -> bool:
         """Cancel a plan."""
         async with self._lock:
             plan = self._plans.get(session_id)
@@ -624,6 +650,11 @@ class PlanManager:
 
             # Archive to history
             self._archive_plan(session_id, plan)
+
+            # Archive in session file
+            if project_path:
+                await self._archive_plan_to_session(session_id, project_path)
+
             return True
 
     def _archive_plan(self, session_id: str, plan: Plan):
@@ -637,6 +668,53 @@ class PlanManager:
         # Remove from active
         if session_id in self._plans:
             del self._plans[session_id]
+
+    async def _persist_plan(self, plan: Plan, session_id: str, project_path: str) -> None:
+        """Save plan to ChatSession file."""
+        from agent.streaming import ChatSession
+
+        session = ChatSession.load(project_path, session_id)
+        if session:
+            session.set_active_plan(plan.to_dict())
+            session.save()
+            logger.info(f"Persisted plan '{plan.plan_id}' to session {session_id}")
+
+    async def _archive_plan_to_session(self, session_id: str, project_path: str) -> None:
+        """Archive plan in ChatSession file."""
+        from agent.streaming import ChatSession
+
+        session = ChatSession.load(project_path, session_id)
+        if session:
+            session.archive_plan()
+            session.save()
+            logger.info(f"Archived plan for session {session_id}")
+
+    async def load_from_session(self, session_id: str, project_path: str) -> Plan | None:
+        """
+        Load plan from session file into memory.
+
+        Args:
+            session_id: Session identifier
+            project_path: Path to the project
+
+        Returns:
+            Loaded Plan or None if no active plan
+        """
+        from agent.streaming import ChatSession
+
+        # Check if already in memory
+        if session_id in self._plans:
+            return self._plans[session_id]
+
+        # Load from disk
+        session = ChatSession.load(project_path, session_id)
+        if session and session.active_plan:
+            plan = Plan.from_dict(session.active_plan)
+            self._plans[session_id] = plan
+            logger.info(f"Loaded plan '{plan.plan_id}' from session {session_id}")
+            return plan
+
+        return None
 
     async def get_history(self, session_id: str = "default", limit: int = 10) -> list[Plan]:
         """
