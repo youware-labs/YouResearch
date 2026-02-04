@@ -5,7 +5,6 @@ Main agent implementation using PydanticAI framework.
 Replaces the raw Anthropic SDK implementation.
 """
 
-import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, TYPE_CHECKING
@@ -15,8 +14,10 @@ from pydantic_ai import Agent, RunContext
 from agent.providers import get_default_model
 from agent.prompts import get_system_prompt
 from agent.processors import default_history_processor
+from agent.errors import ToolError, ErrorCode
+from agent.logging import get_logger, log_tool_call, log_tool_success, log_tool_error
 
-logger = logging.getLogger(__name__)
+logger = get_logger("agent")
 
 if TYPE_CHECKING:
     from agent.hitl import HITLManager, ApprovalStatus
@@ -127,28 +128,37 @@ async def read_file(ctx: RunContext[AuraDeps], filepath: str) -> str:
     Returns:
         File contents with line numbers
     """
+    log_tool_call(logger, "read_file", filepath=filepath)
     project_path = ctx.deps.project_path
     full_path = Path(project_path) / filepath
-
-    if not full_path.exists():
-        return f"Error: File not found: {filepath}"
-
-    if not full_path.is_file():
-        return f"Error: Not a file: {filepath}"
 
     # Security: ensure path is within project
     try:
         full_path.resolve().relative_to(Path(project_path).resolve())
     except ValueError:
-        return f"Error: Path escapes project directory: {filepath}"
+        log_tool_error(logger, "read_file", "PATH_ESCAPE", f"Path escapes project: {filepath}")
+        raise ToolError(ErrorCode.PATH_ESCAPE, f"Path escapes project directory: {filepath}")
+
+    if not full_path.exists():
+        log_tool_error(logger, "read_file", "FILE_NOT_FOUND", f"File not found: {filepath}")
+        raise ToolError(ErrorCode.FILE_NOT_FOUND, f"File not found: {filepath}")
+
+    if not full_path.is_file():
+        log_tool_error(logger, "read_file", "INVALID_PATH", f"Not a file: {filepath}")
+        raise ToolError(ErrorCode.INVALID_PATH, f"Not a file: {filepath}")
 
     try:
         content = full_path.read_text()
         lines = content.split('\n')
         numbered = [f"{i+1:4}│ {line}" for i, line in enumerate(lines)]
+        log_tool_success(logger, "read_file", lines=len(lines))
         return f"File: {filepath} ({len(lines)} lines)\n" + "\n".join(numbered)
+    except PermissionError:
+        log_tool_error(logger, "read_file", "PERMISSION_DENIED", f"Cannot read: {filepath}")
+        raise ToolError(ErrorCode.PERMISSION_DENIED, f"Cannot read file: {filepath}")
     except Exception as e:
-        return f"Error reading file: {e}"
+        log_tool_error(logger, "read_file", "INTERNAL_ERROR", str(e))
+        raise ToolError(ErrorCode.INTERNAL_ERROR, f"Error reading file: {e}")
 
 
 @aura_agent.tool
@@ -169,6 +179,8 @@ async def edit_file(
     Returns:
         Success message or error
     """
+    log_tool_call(logger, "edit_file", filepath=filepath)
+
     # HITL check - wait for approval if enabled
     should_proceed, rejection_msg, modified_args = await _check_hitl(
         ctx, "edit_file",
@@ -186,31 +198,46 @@ async def edit_file(
     project_path = ctx.deps.project_path
     full_path = Path(project_path) / filepath
 
-    if not full_path.exists():
-        return f"Error: File not found: {filepath}"
-
     # Security: ensure path is within project
     try:
         full_path.resolve().relative_to(Path(project_path).resolve())
     except ValueError:
-        return f"Error: Path escapes project directory: {filepath}"
+        log_tool_error(logger, "edit_file", "PATH_ESCAPE", f"Path escapes project: {filepath}")
+        raise ToolError(ErrorCode.PATH_ESCAPE, f"Path escapes project directory: {filepath}")
+
+    if not full_path.exists():
+        log_tool_error(logger, "edit_file", "FILE_NOT_FOUND", f"File not found: {filepath}")
+        raise ToolError(ErrorCode.FILE_NOT_FOUND, f"File not found: {filepath}")
 
     try:
         content = full_path.read_text()
 
         if old_string not in content:
-            return f"Error: Could not find the specified text in {filepath}"
+            log_tool_error(logger, "edit_file", "INVALID_INPUT", "Text not found in file")
+            raise ToolError(ErrorCode.INVALID_INPUT, f"Could not find the specified text in {filepath}")
 
         count = content.count(old_string)
         if count > 1:
-            return f"Error: Found {count} occurrences. Please provide more context for unique match."
+            log_tool_error(logger, "edit_file", "INVALID_INPUT", f"Found {count} occurrences")
+            raise ToolError(
+                ErrorCode.INVALID_INPUT,
+                f"Found {count} occurrences. Please provide more context for unique match.",
+                details={"count": count}
+            )
 
         new_content = content.replace(old_string, new_string, 1)
         full_path.write_text(new_content)
 
+        log_tool_success(logger, "edit_file", filepath=filepath)
         return f"Successfully edited {filepath}"
+    except ToolError:
+        raise
+    except PermissionError:
+        log_tool_error(logger, "edit_file", "PERMISSION_DENIED", f"Cannot write: {filepath}")
+        raise ToolError(ErrorCode.PERMISSION_DENIED, f"Cannot write to file: {filepath}")
     except Exception as e:
-        return f"Error editing file: {e}"
+        log_tool_error(logger, "edit_file", "INTERNAL_ERROR", str(e))
+        raise ToolError(ErrorCode.INTERNAL_ERROR, f"Error editing file: {e}")
 
 
 @aura_agent.tool
@@ -229,6 +256,8 @@ async def write_file(
     Returns:
         Success message or error
     """
+    log_tool_call(logger, "write_file", filepath=filepath, size=len(content))
+
     # HITL check - wait for approval if enabled
     should_proceed, rejection_msg, modified_args = await _check_hitl(
         ctx, "write_file",
@@ -250,14 +279,20 @@ async def write_file(
     try:
         full_path.resolve().relative_to(Path(project_path).resolve())
     except ValueError:
-        return f"Error: Path escapes project directory: {filepath}"
+        log_tool_error(logger, "write_file", "PATH_ESCAPE", f"Path escapes project: {filepath}")
+        raise ToolError(ErrorCode.PATH_ESCAPE, f"Path escapes project directory: {filepath}")
 
     try:
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content)
+        log_tool_success(logger, "write_file", filepath=filepath, size=len(content))
         return f"Successfully wrote {filepath} ({len(content)} chars)"
+    except PermissionError:
+        log_tool_error(logger, "write_file", "PERMISSION_DENIED", f"Cannot write: {filepath}")
+        raise ToolError(ErrorCode.PERMISSION_DENIED, f"Cannot write to file: {filepath}")
     except Exception as e:
-        return f"Error writing file: {e}"
+        log_tool_error(logger, "write_file", "INTERNAL_ERROR", str(e))
+        raise ToolError(ErrorCode.INTERNAL_ERROR, f"Error writing file: {e}")
 
 
 @aura_agent.tool
@@ -271,14 +306,24 @@ async def list_files(ctx: RunContext[AuraDeps], directory: str = ".") -> str:
     Returns:
         List of files and directories
     """
+    log_tool_call(logger, "list_files", directory=directory)
     project_path = ctx.deps.project_path
     full_path = Path(project_path) / directory
 
+    # Security: ensure path is within project
+    try:
+        full_path.resolve().relative_to(Path(project_path).resolve())
+    except ValueError:
+        log_tool_error(logger, "list_files", "PATH_ESCAPE", f"Path escapes project: {directory}")
+        raise ToolError(ErrorCode.PATH_ESCAPE, f"Path escapes project directory: {directory}")
+
     if not full_path.exists():
-        return f"Error: Directory not found: {directory}"
+        log_tool_error(logger, "list_files", "FILE_NOT_FOUND", f"Directory not found: {directory}")
+        raise ToolError(ErrorCode.FILE_NOT_FOUND, f"Directory not found: {directory}")
 
     if not full_path.is_dir():
-        return f"Error: Not a directory: {directory}"
+        log_tool_error(logger, "list_files", "INVALID_PATH", f"Not a directory: {directory}")
+        raise ToolError(ErrorCode.INVALID_PATH, f"Not a directory: {directory}")
 
     try:
         items = []
@@ -291,9 +336,14 @@ async def list_files(ctx: RunContext[AuraDeps], directory: str = ".") -> str:
                 size = item.stat().st_size
                 items.append(f"📄 {item.name} ({size} bytes)")
 
+        log_tool_success(logger, "list_files", count=len(items))
         return f"Contents of {directory}:\n" + "\n".join(items) if items else f"Directory {directory} is empty"
+    except PermissionError:
+        log_tool_error(logger, "list_files", "PERMISSION_DENIED", f"Cannot access: {directory}")
+        raise ToolError(ErrorCode.PERMISSION_DENIED, f"Cannot access directory: {directory}")
     except Exception as e:
-        return f"Error listing directory: {e}"
+        log_tool_error(logger, "list_files", "INTERNAL_ERROR", str(e))
+        raise ToolError(ErrorCode.INTERNAL_ERROR, f"Error listing directory: {e}")
 
 
 @aura_agent.tool
@@ -307,18 +357,22 @@ async def find_files(ctx: RunContext[AuraDeps], pattern: str) -> str:
     Returns:
         List of matching files
     """
+    log_tool_call(logger, "find_files", pattern=pattern)
     project_path = Path(ctx.deps.project_path)
 
     try:
         matches = list(project_path.glob(pattern))
         if not matches:
+            log_tool_success(logger, "find_files", count=0)
             return f"No files found matching: {pattern}"
 
         # Make paths relative and sort
         relative = sorted([str(m.relative_to(project_path)) for m in matches if m.is_file()])
+        log_tool_success(logger, "find_files", count=len(relative))
         return f"Found {len(relative)} files matching '{pattern}':\n" + "\n".join(f"  {f}" for f in relative[:50])
     except Exception as e:
-        return f"Error searching files: {e}"
+        log_tool_error(logger, "find_files", "INTERNAL_ERROR", str(e))
+        raise ToolError(ErrorCode.INTERNAL_ERROR, f"Error searching files: {e}")
 
 
 @aura_agent.tool
@@ -1376,22 +1430,30 @@ async def compile_latex(
     Returns:
         Compilation result with any errors
     """
+    log_tool_call(logger, "compile_latex", main_file=main_file)
     from services.unified_latex import get_unified_latex
 
     latex = get_unified_latex()
     project_path = ctx.deps.project_path
 
-    result = await latex.compile(project_path, main_file)
+    try:
+        result = await latex.compile(project_path, main_file)
 
-    if result.success:
-        backend_info = f" (using {result.backend_used})" if result.backend_used else ""
-        return f"Compilation successful{backend_info}! Output: {result.pdf_path}"
-    elif result.tex_not_available:
-        return f"No LaTeX compiler available:\n{result.error_summary}"
-    else:
-        # Return last 2000 chars of log
-        log_excerpt = result.log[-2000:] if result.log else ""
-        return f"Compilation failed:\n{result.error_summary or ''}\n{log_excerpt}"
+        if result.success:
+            backend_info = f" (using {result.backend_used})" if result.backend_used else ""
+            log_tool_success(logger, "compile_latex", backend=result.backend_used)
+            return f"Compilation successful{backend_info}! Output: {result.pdf_path}"
+        elif result.tex_not_available:
+            log_tool_error(logger, "compile_latex", "NOT_IMPLEMENTED", "No LaTeX compiler")
+            return f"No LaTeX compiler available:\n{result.error_summary}"
+        else:
+            log_tool_error(logger, "compile_latex", "COMPILATION_FAILED", result.error_summary or "Unknown error")
+            # Return last 2000 chars of log
+            log_excerpt = result.log[-2000:] if result.log else ""
+            return f"Compilation failed:\n{result.error_summary or ''}\n{log_excerpt}"
+    except Exception as e:
+        log_tool_error(logger, "compile_latex", "INTERNAL_ERROR", str(e))
+        raise ToolError(ErrorCode.INTERNAL_ERROR, f"Compilation error: {e}")
 
 
 @aura_agent.tool
@@ -1410,11 +1472,13 @@ async def check_latex_syntax(
     Returns:
         List of potential issues or "No issues found"
     """
+    log_tool_call(logger, "check_latex_syntax", filepath=filepath)
     project_path = ctx.deps.project_path
     full_path = Path(project_path) / filepath
 
     if not full_path.exists():
-        return f"Error: File not found: {filepath}"
+        log_tool_error(logger, "check_latex_syntax", "FILE_NOT_FOUND", f"File not found: {filepath}")
+        raise ToolError(ErrorCode.FILE_NOT_FOUND, f"File not found: {filepath}")
 
     try:
         content = full_path.read_text()
@@ -1441,11 +1505,19 @@ async def check_latex_syntax(
             issues.append("Empty \\ref{} command found")
 
         if issues:
+            log_tool_success(logger, "check_latex_syntax", issues=len(issues))
             return f"Found {len(issues)} potential issues in {filepath}:\n" + "\n".join(f"  - {i}" for i in issues)
         else:
+            log_tool_success(logger, "check_latex_syntax", issues=0)
             return f"No syntax issues found in {filepath}"
+    except ToolError:
+        raise
+    except PermissionError:
+        log_tool_error(logger, "check_latex_syntax", "PERMISSION_DENIED", f"Cannot read: {filepath}")
+        raise ToolError(ErrorCode.PERMISSION_DENIED, f"Cannot read file: {filepath}")
     except Exception as e:
-        return f"Error checking syntax: {e}"
+        log_tool_error(logger, "check_latex_syntax", "INTERNAL_ERROR", str(e))
+        raise ToolError(ErrorCode.INTERNAL_ERROR, f"Error checking syntax: {e}")
 
 
 # =============================================================================
@@ -1510,6 +1582,7 @@ async def delegate_to_subagent(
     Returns:
         Result from the subagent's work
     """
+    log_tool_call(logger, "delegate_to_subagent", subagent=subagent)
     from agent.subagents import get_subagent, list_subagents
     from agent.venue_hitl import get_research_preference_manager
 
@@ -1518,7 +1591,12 @@ async def delegate_to_subagent(
     available_names = [s["name"] for s in available]
 
     if subagent not in available_names:
-        return f"Unknown subagent: '{subagent}'. Available: {', '.join(available_names)}"
+        log_tool_error(logger, "delegate_to_subagent", "INVALID_INPUT", f"Unknown subagent: {subagent}")
+        raise ToolError(
+            ErrorCode.INVALID_INPUT,
+            f"Unknown subagent: '{subagent}'. Available: {', '.join(available_names)}",
+            details={"available": available_names}
+        )
 
     try:
         # Create context for subagent
@@ -1553,12 +1631,17 @@ async def delegate_to_subagent(
         result = await agent.run(task, context)
 
         if result.success:
+            log_tool_success(logger, "delegate_to_subagent", subagent=subagent)
             return f"[{subagent.upper()} AGENT RESULT]\n\n{result.output}"
         else:
+            log_tool_error(logger, "delegate_to_subagent", "API_ERROR", result.error or "Subagent failed")
             return f"[{subagent.upper()} AGENT ERROR]\n\n{result.error}: {result.output}"
 
+    except ToolError:
+        raise
     except Exception as e:
-        return f"Subagent error: {str(e)}"
+        log_tool_error(logger, "delegate_to_subagent", "INTERNAL_ERROR", str(e))
+        raise ToolError(ErrorCode.INTERNAL_ERROR, f"Subagent error: {str(e)}")
 
 
 # =============================================================================

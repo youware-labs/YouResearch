@@ -21,7 +21,6 @@ from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 from pathlib import Path
 from typing import Optional
-import logging
 import json
 
 from services.unified_latex import get_unified_latex, UnifiedLatex, CompileResult
@@ -43,10 +42,14 @@ from auth.labs_auth import (
     sanitize_next_url,
     verify_token_local,
 )
+from agent.logging import setup_logging, get_logger
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure structured logging
+# Use JSON output in production (AURA_LOG_JSON=1), colored console in development
+log_json = os.getenv("AURA_LOG_JSON", "0") == "1"
+log_level = os.getenv("AURA_LOG_LEVEL", "INFO")
+setup_logging(json_output=log_json, level=log_level)
+logger = get_logger("api")
 
 # Initialize app
 app = FastAPI(
