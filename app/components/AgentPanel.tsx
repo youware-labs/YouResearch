@@ -54,6 +54,7 @@ import {
   getProviderConfigForRequest,
 } from '../lib/providerSettings';
 import ModelSelector from './ModelSelector';
+import APIErrorBanner, { APIError } from './APIErrorBanner';
 
 // Mode types
 type AgentMode = 'chat' | 'vibe' | 'verifier';
@@ -65,6 +66,7 @@ interface AgentPanelProps {
   onOpenFile?: (filePath: string) => void;
   quotedContext?: SendToAgentContext | null;
   onClearQuote?: () => void;
+  onOpenSettings?: () => void;
 }
 
 interface ToolCall {
@@ -499,6 +501,7 @@ export default function AgentPanel({
   onOpenFile,
   quotedContext,
   onClearQuote,
+  onOpenSettings,
 }: AgentPanelProps) {
   // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
@@ -506,6 +509,7 @@ export default function AgentPanel({
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [currentPlan, setCurrentPlan] = useState<Plan | null>(null);
+  const [apiError, setApiError] = useState<APIError>(null);
   const [domainPreferenceModal, setDomainPreferenceModal] = useState<{
     isOpen: boolean;
     requestId: string;
@@ -941,6 +945,21 @@ export default function AgentPanel({
       });
 
       if (!response.ok) {
+        // Handle specific API errors
+        if (response.status === 403 || response.status === 429) {
+          try {
+            const errorData = await response.json();
+            if (errorData.error === 'api_key_required' || errorData.error === 'rate_limited') {
+              setApiError(errorData);
+              // Remove the empty assistant message
+              setMessages((prev) => prev.slice(0, -1));
+              setIsStreaming(false);
+              return;
+            }
+          } catch {
+            // Fall through to generic error handling
+          }
+        }
         throw new Error(`HTTP ${response.status}`);
       }
 
@@ -1425,6 +1444,10 @@ export default function AgentPanel({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      const nativeEvent = e.nativeEvent as KeyboardEvent;
+      if (e.isComposing || nativeEvent.isComposing || nativeEvent.keyCode === 229) {
+        return;
+      }
       // Command palette navigation
       if (showCommandPalette) {
         if (e.key === 'ArrowDown') {
@@ -1604,6 +1627,14 @@ export default function AgentPanel({
           </div>
         ) : (
           <div className="min-h-full flex flex-col justify-end space-y-3">
+            {/* API Error Banner */}
+            {apiError && (
+              <APIErrorBanner
+                error={apiError}
+                onDismiss={() => setApiError(null)}
+                onOpenSettings={onOpenSettings}
+              />
+            )}
             {messages.map((msg) => (
               <MessageDisplay
                 key={msg.id}

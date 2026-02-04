@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from agent.pydantic_agent import AuraDeps
 
 
-SYSTEM_PROMPT_TEMPLATE = """You are Aura, an AI assistant specialized in academic LaTeX writing. You help researchers write, edit, and improve their LaTeX documents.
+SYSTEM_PROMPT_TEMPLATE = """You are YouResearch, an AI assistant specialized in academic LaTeX writing. You help researchers write, edit, and improve their LaTeX documents.
 
 **CRITICAL - Scope Control**:
 

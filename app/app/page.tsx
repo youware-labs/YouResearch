@@ -1303,6 +1303,7 @@ export default function Home() {
             onOpenFile={handleFileSelect}
             quotedContext={quotedContext}
             onClearQuote={handleClearQuote}
+            onOpenSettings={handleOpenSettings}
           />
         </div>
 

@@ -29,6 +29,12 @@ from services.project import ProjectService, ProjectInfo
 from services.memory import MemoryService
 from services.latex_parser import parse_document, parse_bib_file_path, find_unused_citations
 from services.docker_setup import get_docker_setup, DockerSetupService, DockerStatus
+from agent.providers.openrouter import (
+    FreeModelRequiredError,
+    FallbackKeyRateLimitError,
+    list_free_models,
+    get_rate_limit_status,
+)
 from auth.labs_auth import (
     load_config as load_labs_config,
     build_redirect_uri,
@@ -64,6 +70,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ============ Exception Handlers ============
+
+@app.exception_handler(FreeModelRequiredError)
+async def handle_free_model_error(request: Request, exc: FreeModelRequiredError):
+    """Handle attempts to use paid models without user's own API key."""
+    return JSONResponse(
+        status_code=403,
+        content={
+            "error": "api_key_required",
+            "message": str(exc),
+            "model_requested": exc.model_id,
+            "free_models": list_free_models(),
+            "hint": "Set OPENROUTER_API_KEY in Settings to use this model.",
+        }
+    )
+
+
+@app.exception_handler(FallbackKeyRateLimitError)
+async def handle_rate_limit_error(request: Request, exc: FallbackKeyRateLimitError):
+    """Handle rate limit exceeded for free tier users."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": "rate_limited",
+            "message": str(exc),
+            "retry_after": exc.wait_time,
+            "rate_limit": get_rate_limit_status(),
+            "hint": "Set your own OPENROUTER_API_KEY to remove rate limits.",
+        },
+        headers={"Retry-After": str(int(exc.wait_time))}
+    )
+
+
 # ============ Auth Configuration ============
 
 labs_config = load_labs_config()
@@ -75,6 +115,8 @@ def _is_public_api_path(path: str) -> bool:
     public_exact = {
         "/api/health",
         "/api/info",
+        "/api/free-models",
+        "/api/rate-limit",
         "/api/labs/authorize",
         "/api/labs/callback",
         "/api/auth/session",
@@ -150,6 +192,21 @@ project_service = ProjectService()
 async def health_check():
     """Health check endpoint for Electron app."""
     return {"status": "ok", "service": "aura-backend"}
+
+
+@app.get("/api/free-models")
+async def get_free_models_list():
+    """Get list of available free models (no API key required)."""
+    return {
+        "models": list_free_models(),
+        "default": "meta-llama/llama-3.1-8b-instruct:free",
+    }
+
+
+@app.get("/api/rate-limit")
+async def get_rate_limit():
+    """Get current rate limit status for free tier."""
+    return get_rate_limit_status()
 
 
 # ============ Auth Endpoints ============

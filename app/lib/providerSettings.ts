@@ -47,7 +47,7 @@ export const OPENROUTER_MODELS: OpenRouterModel[] = [
   // Google
   { id: 'google/gemini-3-flash-preview', name: 'Gemini 3 Flash Preview' },
   // Free model (no tool support)
-  { id: 'nvidia/nemotron-nano-9b-v2:free', name: 'Nemotron Nano 9B (Free)' },
+  { id: 'openrouter/free', name: 'OpenRouter Free (Auto)' },
 ];
 
 export const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-4.5';
