@@ -20,6 +20,8 @@ from openai import AsyncOpenAI
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
+from agent.providers.base import ModelProvider, ProviderConfig
+
 
 # OpenRouter configuration
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -396,3 +398,60 @@ def get_rate_limit_status() -> dict:
         "window_seconds": _fallback_rate_limiter.window_seconds,
         "reset_in": reset_in,
     }
+
+
+# =============================================================================
+# OpenRouterProvider class (for ProviderManager integration)
+# =============================================================================
+
+class OpenRouterProvider(ModelProvider):
+    """
+    Builtin OpenRouter provider.
+
+    This wraps the existing OpenRouter functions into the ModelProvider interface
+    for use with ProviderManager.
+    """
+
+    def __init__(self):
+        # Create config for the base class
+        config = ProviderConfig(
+            name="openrouter",
+            display_name="OpenRouter",
+            base_url=OPENROUTER_BASE_URL,
+            api_key=os.getenv("OPENROUTER_API_KEY", ""),
+            models=SUPPORTED_MODELS + FREE_MODELS,
+            default_model=DEFAULT_MODEL if not is_using_fallback_key() else DEFAULT_FREE_MODEL,
+        )
+        super().__init__(config)
+
+    def get_model(self, model_id: str | None = None) -> OpenAIModel:
+        """
+        Get a PydanticAI model configured for OpenRouter.
+
+        Uses the existing get_openrouter_model function which handles
+        all the rate limiting and free model validation.
+        """
+        return get_openrouter_model(model_id=model_id)
+
+    async def test_connection(self) -> tuple[bool, str | None, int | None]:
+        """Test the OpenRouter connection."""
+        start = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{OPENROUTER_BASE_URL}/models",
+                    headers={"Authorization": f"Bearer {self.config.api_key or INTERNAL_OPENROUTER_API_KEY}"}
+                )
+                latency_ms = int((time.monotonic() - start) * 1000)
+
+                if response.status_code == 200:
+                    return True, None, latency_ms
+                else:
+                    return False, f"HTTP {response.status_code}", latency_ms
+
+        except httpx.ConnectError:
+            return False, "Connection refused", None
+        except httpx.TimeoutException:
+            return False, "Connection timeout", None
+        except Exception as e:
+            return False, str(e), None

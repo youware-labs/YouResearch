@@ -1564,6 +1564,107 @@ class ApiClient {
   }
 
   // ===========================================================================
+  // Provider Management
+  // ===========================================================================
+
+  /**
+   * List all providers (builtin and custom)
+   */
+  async listProviders(): Promise<{
+    providers: Array<{
+      name: string;
+      display_name: string;
+      builtin: boolean;
+      models: string[];
+      default_model: string;
+      base_url: string;
+    }>;
+    active: string;
+  }> {
+    await this.ensureInitialized();
+    const response = await fetch(`${this.baseUrl}/api/providers`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * Add a custom provider
+   */
+  async addProvider(provider: {
+    name: string;
+    display_name: string;
+    base_url: string;
+    api_key: string;
+    models: string[];
+    default_model: string;
+  }): Promise<{ success: boolean }> {
+    await this.ensureInitialized();
+    const response = await fetch(`${this.baseUrl}/api/providers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(provider),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * Delete a custom provider
+   */
+  async deleteProvider(name: string): Promise<{ success: boolean }> {
+    await this.ensureInitialized();
+    const response = await fetch(`${this.baseUrl}/api/providers/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * Set the active provider
+   */
+  async setActiveProvider(name: string): Promise<{ success: boolean }> {
+    await this.ensureInitialized();
+    const response = await fetch(`${this.baseUrl}/api/providers/active`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
+   * Test a provider's connection
+   */
+  async testProvider(name: string): Promise<{
+    success: boolean;
+    error: string | null;
+    latency_ms: number | null;
+  }> {
+    await this.ensureInitialized();
+    const response = await fetch(`${this.baseUrl}/api/providers/${encodeURIComponent(name)}/test`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  // ===========================================================================
   // Health Check
   // ===========================================================================
 

@@ -1989,6 +1989,198 @@ async def get_dashscope_models() -> list[dict]:
     return list_dashscope_models()
 
 
+# ============ Provider Management API ============
+
+class ProviderCreateRequest(BaseModel):
+    """Request to create a custom provider."""
+    name: str  # unique identifier
+    display_name: str  # human-readable name
+    base_url: str  # API base URL
+    api_key: str = ""  # optional API key
+    models: list[str]  # available models
+    default_model: str = ""  # default model (uses first if empty)
+
+
+class ProviderUpdateRequest(BaseModel):
+    """Request to update a custom provider."""
+    display_name: Optional[str] = None
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    models: Optional[list[str]] = None
+    default_model: Optional[str] = None
+
+
+class SetActiveProviderRequest(BaseModel):
+    """Request to set the active provider."""
+    name: str
+
+
+@app.get("/api/providers")
+async def list_providers() -> dict:
+    """
+    List all available providers (builtin and custom).
+
+    Returns:
+        Dict with 'providers' list and 'active' provider name.
+    """
+    from agent.providers import get_provider_manager
+
+    manager = get_provider_manager()
+    providers = manager.list_providers()
+
+    return {
+        "providers": [
+            {
+                "name": p.name,
+                "display_name": p.display_name,
+                "builtin": p.builtin,
+                "models": p.models,
+                "default_model": p.default_model,
+                "base_url": p.base_url,
+            }
+            for p in providers
+        ],
+        "active": manager.get_active_name(),
+    }
+
+
+@app.post("/api/providers")
+async def add_provider(request: ProviderCreateRequest) -> dict:
+    """
+    Add a custom provider.
+
+    Args:
+        name: Unique identifier for the provider
+        display_name: Human-readable name
+        base_url: API base URL (e.g., http://localhost:11434/v1)
+        api_key: Optional API key
+        models: List of available model IDs
+        default_model: Default model to use
+
+    Returns:
+        Success status
+    """
+    from agent.providers import get_provider_manager, ProviderConfig
+
+    manager = get_provider_manager()
+
+    config = ProviderConfig(
+        name=request.name,
+        display_name=request.display_name,
+        base_url=request.base_url,
+        api_key=request.api_key,
+        models=request.models,
+        default_model=request.default_model,
+    )
+
+    try:
+        manager.add_provider(config)
+        return {"success": True}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/providers/{name}")
+async def update_provider(name: str, request: ProviderUpdateRequest) -> dict:
+    """
+    Update an existing custom provider.
+
+    Args:
+        name: Provider name to update
+
+    Returns:
+        Success status
+    """
+    from agent.providers import get_provider_manager, ProviderConfig
+
+    manager = get_provider_manager()
+
+    try:
+        # Get existing provider
+        existing = manager.get_provider(name)
+
+        # Build updated config
+        config = ProviderConfig(
+            name=name,
+            display_name=request.display_name or existing.display_name,
+            base_url=request.base_url or existing.config.base_url,
+            api_key=request.api_key if request.api_key is not None else existing.config.api_key,
+            models=request.models or existing.models,
+            default_model=request.default_model or existing.default_model,
+        )
+
+        manager.update_provider(name, config)
+        return {"success": True}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/providers/{name}")
+async def remove_provider(name: str) -> dict:
+    """
+    Remove a custom provider.
+
+    Args:
+        name: Provider name to remove
+
+    Returns:
+        Success status
+    """
+    from agent.providers import get_provider_manager
+
+    manager = get_provider_manager()
+
+    try:
+        manager.remove_provider(name)
+        return {"success": True}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/providers/active")
+async def set_active_provider(request: SetActiveProviderRequest) -> dict:
+    """
+    Set the active provider.
+
+    Args:
+        name: Provider name to set as active
+
+    Returns:
+        Success status
+    """
+    from agent.providers import get_provider_manager
+
+    manager = get_provider_manager()
+
+    try:
+        manager.set_active(request.name)
+        return {"success": True}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/providers/{name}/test")
+async def test_provider(name: str) -> dict:
+    """
+    Test a provider's connection.
+
+    Args:
+        name: Provider name to test
+
+    Returns:
+        Dict with 'success', 'error', and 'latency_ms' keys
+    """
+    from agent.providers import get_provider_manager
+
+    manager = get_provider_manager()
+
+    try:
+        result = await manager.test_provider(name)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @app.post("/api/subagents/run")
 async def run_subagent_endpoint(request: SubagentRunRequest) -> dict:
     """

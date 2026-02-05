@@ -1025,36 +1025,56 @@ async def stream_agent_response(
             logger.warning(f"Compression failed, using original history: {e}")
             # Continue with original history on compression failure
 
-    # Resolve model based on provider config
+    # Resolve model based on provider config or active provider
     model_override = None
 
-    if provider_config:
-        provider_name = provider_config.get("name", "openrouter")
-        api_key = provider_config.get("api_key", "")
+    try:
+        from agent.providers import get_provider_manager
 
-        # Validate API key for OpenRouter
-        if provider_name == "openrouter" and not api_key:
-            yield ErrorEvent(
-                message="OpenRouter API key not configured. "
-                "Please go to Settings and enter your OpenRouter API key. "
-                "Get your API key at: https://openrouter.ai/keys"
-            )
-            return
+        if provider_config:
+            provider_name_config = provider_config.get("name", "openrouter")
+            api_key = provider_config.get("api_key", "")
+            model_id = provider_config.get("model")
 
-        # Create model with API key
-        if api_key:
-            from agent.providers import get_model
-            try:
+            # Legacy behavior: api_key provided directly in config
+            if api_key:
+                from agent.providers import get_model
                 model_override = get_model(
-                    provider=provider_name,
-                    model_id=provider_config.get("model"),
+                    provider=provider_name_config,
+                    model_id=model_id,
                     api_key=api_key,
                 )
-                logger.info(f"Using {provider_name} model: {provider_config.get('model')}")
-            except Exception as e:
-                logger.error(f"Failed to get model from provider config: {e}")
-                yield ErrorEvent(message=f"Provider error: {e}")
-                return
+                logger.info(f"Using {provider_name_config} model (legacy): {model_id}")
+            else:
+                # New behavior: look up provider in ProviderManager
+                manager = get_provider_manager()
+                try:
+                    provider = manager.get_provider(provider_name_config)
+                    model_override = provider.get_model(model_id)
+                    logger.info(f"Using provider '{provider_name_config}' model: {model_id or provider.default_model}")
+                except ValueError as e:
+                    # Provider not found - for openrouter without key, show helpful error
+                    if provider_name_config == "openrouter":
+                        yield ErrorEvent(
+                            message="OpenRouter API key not configured. "
+                            "Please go to Settings and enter your OpenRouter API key. "
+                            "Get your API key at: https://openrouter.ai/keys"
+                        )
+                        return
+                    else:
+                        yield ErrorEvent(message=f"Provider error: {e}")
+                        return
+        else:
+            # No provider config - use active provider from ProviderManager
+            manager = get_provider_manager()
+            provider = manager.get_active()
+            model_override = provider.get_model()
+            logger.info(f"Using active provider '{provider.name}' with model: {provider.default_model}")
+
+    except Exception as e:
+        logger.error(f"Failed to resolve model: {e}")
+        yield ErrorEvent(message=f"Provider error: {e}")
+        return
 
     try:
         if enable_hitl and event_queue:
@@ -1446,7 +1466,22 @@ async def run_agent(
         except Exception as e:
             logger.warning(f"Compression failed, using original history: {e}")
 
-    result = await aura_agent.run(effective_message, deps=deps, message_history=processed_history)
+    # Get model from active provider
+    model_override = None
+    try:
+        from agent.providers import get_provider_manager
+        manager = get_provider_manager()
+        provider = manager.get_active()
+        model_override = provider.get_model()
+        logger.info(f"run_agent using active provider '{provider.name}' with model: {provider.default_model}")
+    except Exception as e:
+        logger.warning(f"Failed to get active provider, using default: {e}")
+
+    run_kwargs = {"deps": deps, "message_history": processed_history}
+    if model_override:
+        run_kwargs["model"] = model_override
+
+    result = await aura_agent.run(effective_message, **run_kwargs)
     usage = result.usage()
 
     # Save the updated message history for this session

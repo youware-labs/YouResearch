@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { X, Link, Eye, EyeOff, Loader2, Check, AlertCircle, Cpu } from 'lucide-react';
+import { X, Link, Eye, EyeOff, Loader2, Check, AlertCircle, Cpu, Plus, Trash2, Zap } from 'lucide-react';
 import { api, SyncStatus } from '@/lib/api';
 import {
   ProviderSettings,
@@ -13,6 +13,16 @@ import {
   getProviderSettings,
   saveProviderSettings,
 } from '@/lib/providerSettings';
+
+// Custom provider type from backend
+interface CustomProvider {
+  name: string;
+  display_name: string;
+  builtin: boolean;
+  models: string[];
+  default_model: string;
+  base_url: string;
+}
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -53,6 +63,20 @@ export default function SettingsModal({
   const [success, setSuccess] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
 
+  // Custom providers
+  const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
+  const [activeProvider, setActiveProvider] = useState<string>('openrouter');
+  const [showAddProvider, setShowAddProvider] = useState(false);
+  const [newProvider, setNewProvider] = useState({
+    name: '',
+    display_name: '',
+    base_url: '',
+    api_key: '',
+    models: '',
+  });
+  const [addingProvider, setAddingProvider] = useState(false);
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
+
   const loadSyncStatus = useCallback(async () => {
     if (!projectPath) return;
 
@@ -68,6 +92,19 @@ export default function SettingsModal({
       console.error('Failed to load sync status:', e);
     }
   }, [projectPath]);
+
+  // Load custom providers from backend
+  const loadProviders = useCallback(async () => {
+    try {
+      const data = await api.listProviders();
+      // Filter to only show custom (non-builtin) providers
+      const custom = data.providers.filter(p => !p.builtin);
+      setCustomProviders(custom);
+      setActiveProvider(data.active);
+    } catch (e) {
+      console.error('Failed to load providers:', e);
+    }
+  }, []);
 
   // Load settings on mount
   useEffect(() => {
@@ -89,8 +126,10 @@ export default function SettingsModal({
       if (projectPath) {
         loadSyncStatus();
       }
+      // Load custom providers
+      loadProviders();
     }
-  }, [isOpen, projectPath, loadSyncStatus]);
+  }, [isOpen, projectPath, loadSyncStatus, loadProviders]);
 
   const handleSetup = useCallback(async () => {
     console.log('[SettingsModal] handleSetup called', { projectPath, overleafUrl, token: token ? '***' : 'empty' });
@@ -166,7 +205,7 @@ export default function SettingsModal({
   }, [projectPath]);
 
   // Provider change handlers
-  const handleProviderChange = useCallback((provider: ProviderName) => {
+  const handleProviderChange = useCallback(async (provider: ProviderName) => {
     const newSettings: ProviderSettings = {
       ...providerSettings,
       provider,
@@ -186,6 +225,16 @@ export default function SettingsModal({
         apiKey: dashscopeApiKey,
         selectedModel: selectedModel,
       };
+    }
+
+    // When switching to builtin provider, also set it as active in backend
+    if (provider === 'openrouter' || provider === 'dashscope') {
+      try {
+        await api.setActiveProvider('openrouter'); // Backend builtin
+        setActiveProvider('openrouter');
+      } catch (e) {
+        console.error('Failed to set backend active provider:', e);
+      }
     }
 
     setProviderSettings(newSettings);
@@ -276,6 +325,86 @@ export default function SettingsModal({
       setOpenrouterStatus('error');
     }
   }, [openrouterApiKey, openrouterModel, providerSettings, onProviderChange]);
+
+  // Add custom provider
+  const handleAddProvider = useCallback(async () => {
+    if (!newProvider.name || !newProvider.base_url || !newProvider.models) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    setAddingProvider(true);
+    setError(null);
+
+    try {
+      const modelList = newProvider.models.split(',').map(m => m.trim()).filter(m => m);
+      await api.addProvider({
+        name: newProvider.name.toLowerCase().replace(/\s+/g, '-'),
+        display_name: newProvider.display_name || newProvider.name,
+        base_url: newProvider.base_url,
+        api_key: newProvider.api_key,
+        models: modelList,
+        default_model: modelList[0] || '',
+      });
+
+      // Reset form and reload
+      setNewProvider({ name: '', display_name: '', base_url: '', api_key: '', models: '' });
+      setShowAddProvider(false);
+      await loadProviders();
+      setSuccess('Provider added successfully');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to add provider');
+    } finally {
+      setAddingProvider(false);
+    }
+  }, [newProvider, loadProviders]);
+
+  // Delete custom provider
+  const handleDeleteProvider = useCallback(async (name: string) => {
+    try {
+      await api.deleteProvider(name);
+      await loadProviders();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete provider');
+    }
+  }, [loadProviders]);
+
+  // Test custom provider connection
+  const handleTestProvider = useCallback(async (name: string) => {
+    setTestingProvider(name);
+    try {
+      const result = await api.testProvider(name);
+      if (result.success) {
+        setSuccess(`Connection successful (${result.latency_ms}ms)`);
+      } else {
+        setError(result.error || 'Connection failed');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Test failed');
+    } finally {
+      setTestingProvider(null);
+    }
+  }, []);
+
+  // Set active provider (backend) and update frontend settings
+  const handleSetActiveCustomProvider = useCallback(async (name: string) => {
+    try {
+      await api.setActiveProvider(name);
+      setActiveProvider(name);
+
+      // Update frontend settings to use 'custom' provider type
+      // This tells the frontend to not send provider_config, letting backend use its active provider
+      const newSettings: ProviderSettings = {
+        ...providerSettings,
+        provider: 'custom',
+      };
+      setProviderSettings(newSettings);
+      saveProviderSettings(newSettings);
+      onProviderChange?.(newSettings);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to set active provider');
+    }
+  }, [providerSettings, onProviderChange]);
 
   if (!isOpen) return null;
 
@@ -483,6 +612,148 @@ export default function SettingsModal({
                       ))}
                     </select>
                   </div>
+                </div>
+              )}
+
+              {/* Custom Providers */}
+              {customProviders.length > 0 && (
+                <>
+                  <div className="border-t border-black/6 my-3" />
+                  <div className="typo-ex-small text-tertiary mb-2">Custom Providers</div>
+                  {customProviders.map((provider) => (
+                    <div
+                      key={provider.name}
+                      className={`flex items-center justify-between p-3 rounded-yw-lg border transition-colors ${
+                        activeProvider === provider.name
+                          ? 'border-green2 bg-green2/5'
+                          : 'border-black/10 hover:bg-black/3'
+                      }`}
+                    >
+                      <label className="flex items-center gap-3 cursor-pointer flex-1">
+                        <input
+                          type="radio"
+                          name="provider"
+                          value={provider.name}
+                          checked={activeProvider === provider.name}
+                          onChange={() => handleSetActiveCustomProvider(provider.name)}
+                          className="accent-green2"
+                        />
+                        <div>
+                          <div className="typo-small-strong">{provider.display_name}</div>
+                          <div className="typo-ex-small text-tertiary">
+                            {provider.models.slice(0, 3).join(', ')}
+                            {provider.models.length > 3 && ` +${provider.models.length - 3} more`}
+                          </div>
+                        </div>
+                      </label>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => handleTestProvider(provider.name)}
+                          disabled={testingProvider === provider.name}
+                          className="btn-icon"
+                          title="Test connection"
+                        >
+                          {testingProvider === provider.name ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <Zap size={14} />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProvider(provider.name)}
+                          className="btn-icon text-error hover:bg-error/10"
+                          title="Delete provider"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Add Custom Provider Button */}
+              {!showAddProvider && (
+                <button
+                  onClick={() => setShowAddProvider(true)}
+                  className="w-full p-3 border border-dashed border-black/20 rounded-yw-lg text-tertiary hover:text-secondary hover:border-black/30 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus size={16} />
+                  <span className="typo-small">Add Custom Provider</span>
+                </button>
+              )}
+
+              {/* Add Provider Form */}
+              {showAddProvider && (
+                <div className="p-4 border border-black/10 rounded-yw-lg space-y-3 bg-black/2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="typo-small-strong">Add Custom Provider</span>
+                    <button
+                      onClick={() => setShowAddProvider(false)}
+                      className="btn-icon"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="typo-ex-small text-secondary block mb-1">Name *</label>
+                    <input
+                      type="text"
+                      value={newProvider.name}
+                      onChange={(e) => setNewProvider({ ...newProvider, name: e.target.value })}
+                      placeholder="e.g., My Ollama"
+                      className="input-field w-full"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="typo-ex-small text-secondary block mb-1">Base URL *</label>
+                    <input
+                      type="url"
+                      value={newProvider.base_url}
+                      onChange={(e) => setNewProvider({ ...newProvider, base_url: e.target.value })}
+                      placeholder="http://localhost:11434/v1"
+                      className="input-field w-full"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="typo-ex-small text-secondary block mb-1">API Key (optional)</label>
+                    <input
+                      type="password"
+                      value={newProvider.api_key}
+                      onChange={(e) => setNewProvider({ ...newProvider, api_key: e.target.value })}
+                      placeholder="sk-..."
+                      className="input-field w-full"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="typo-ex-small text-secondary block mb-1">Models * (comma-separated)</label>
+                    <input
+                      type="text"
+                      value={newProvider.models}
+                      onChange={(e) => setNewProvider({ ...newProvider, models: e.target.value })}
+                      placeholder="llama3, mistral, codellama"
+                      className="input-field w-full"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleAddProvider}
+                    disabled={addingProvider}
+                    className="btn-primary w-full"
+                  >
+                    {addingProvider ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin mr-2" />
+                        Adding...
+                      </>
+                    ) : (
+                      'Add Provider'
+                    )}
+                  </button>
                 </div>
               )}
             </div>

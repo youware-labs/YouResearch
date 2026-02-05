@@ -49,7 +49,7 @@ dependencies = [
     "python-multipart>=0.0.6",
     "python-dotenv>=1.0.0",
 
-    # Logging
+    # Logging & Observability
     "structlog>=24.1.0",
 ]
 

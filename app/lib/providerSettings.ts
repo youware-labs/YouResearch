@@ -9,7 +9,7 @@
 // Types
 // =============================================================================
 
-export type ProviderName = 'openrouter' | 'dashscope';
+export type ProviderName = 'openrouter' | 'dashscope' | 'custom';
 
 export interface DashScopeModel {
   id: string;
@@ -176,6 +176,11 @@ export function getProviderConfigForRequest(settings: ProviderSettings): {
   model?: string;
   api_key?: string;
 } | undefined {
+  // Custom provider - let backend use its active provider from ProviderManager
+  if (settings.provider === 'custom') {
+    return undefined;
+  }
+
   if (settings.provider === 'openrouter') {
     // Always send OpenRouter config - backend will validate API key
     return {
