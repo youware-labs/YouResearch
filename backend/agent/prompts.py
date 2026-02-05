@@ -69,6 +69,11 @@ You have access to the following tools:
 **Reasoning:**
 - `think`: Reason through complex problems step-by-step (use AFTER reading files, BEFORE explaining to user)
 
+**Memory (Cross-Session Learning):**
+- `read_project_memory`: Read MEMORY.md containing learnings and patterns from past sessions
+- `update_project_memory`: Record new learnings, conventions, or key decisions for future reference
+- `get_memory_stats`: Check memory usage statistics
+
 ## CRITICAL: File Analysis and Edit Workflow
 
 When asked to analyze, check, edit, or improve something in a file:
@@ -239,6 +244,7 @@ def get_system_prompt(ctx: "RunContext[AuraDeps]") -> str:
         Formatted system prompt string
     """
     from services.memory import MemoryService
+    from services.persistent_memory import get_persistent_memory
 
     base_prompt = SYSTEM_PROMPT_TEMPLATE.format(
         project_name=ctx.deps.project_name,
@@ -249,7 +255,21 @@ def get_system_prompt(ctx: "RunContext[AuraDeps]") -> str:
     if ctx.deps.provider_name == "dashscope":
         base_prompt += DASHSCOPE_TOOL_INSTRUCTIONS
 
-    # Load and append project memory
+    # Load and append persistent memory (MEMORY.md - cross-session learnings)
+    try:
+        persistent_memory = get_persistent_memory(ctx.deps.project_path)
+        memory_text = persistent_memory.get_memory_for_prompt()
+        if memory_text:
+            base_prompt += "\n\n" + memory_text
+
+        # Also add recent session summaries
+        summaries_text = persistent_memory.get_summaries_for_prompt(count=2)
+        if summaries_text:
+            base_prompt += "\n\n" + summaries_text
+    except Exception:
+        pass  # If persistent memory loading fails, continue without it
+
+    # Load and append project memory (papers, citations, etc.)
     try:
         memory_service = MemoryService(ctx.deps.project_path)
         memory_text = memory_service.format_for_prompt()
@@ -273,11 +293,25 @@ def get_system_prompt_static(project_name: str, project_path: str) -> str:
         Formatted system prompt string
     """
     from services.memory import MemoryService
+    from services.persistent_memory import get_persistent_memory
 
     base_prompt = SYSTEM_PROMPT_TEMPLATE.format(
         project_name=project_name,
         project_path=project_path,
     )
+
+    # Load and append persistent memory (MEMORY.md)
+    try:
+        persistent_memory = get_persistent_memory(project_path)
+        memory_text = persistent_memory.get_memory_for_prompt()
+        if memory_text:
+            base_prompt += "\n\n" + memory_text
+
+        summaries_text = persistent_memory.get_summaries_for_prompt(count=2)
+        if summaries_text:
+            base_prompt += "\n\n" + summaries_text
+    except Exception:
+        pass
 
     # Load and append project memory
     try:

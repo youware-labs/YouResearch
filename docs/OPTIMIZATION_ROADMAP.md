@@ -443,41 +443,41 @@
 
 ---
 
-## Phase 8: 性能优化（第9-10周）
+## Phase 8: 性能优化（第9-10周） ✅ COMPLETED
 
-### 8.1 连接池管理
-- **问题**: HTTP 客户端缓存无清理
-- **修复**:
+### 8.1 连接池管理 ✅
+- **文件**: `backend/services/connection_manager.py`
+- **实现**:
   ```python
   class ConnectionManager:
       def __init__(self):
-          self._clients: dict[str, httpx.AsyncClient] = {}
+          self._clients: dict[str, ManagedClient] = {}
 
       async def get_client(self, base_url: str) -> httpx.AsyncClient:
-          if base_url not in self._clients:
-              self._clients[base_url] = httpx.AsyncClient(
-                  base_url=base_url,
-                  timeout=30,
-                  limits=httpx.Limits(max_connections=100)
-              )
-          return self._clients[base_url]
+          # Pooled client with limits and cleanup
+          ...
+
+      async def cleanup_idle(self, max_idle_seconds: int = 300) -> int:
+          # Auto-cleanup idle connections
+          ...
 
       async def close_all(self):
           for client in self._clients.values():
               await client.aclose()
   ```
-- [ ] 完成
+- [x] 完成
 
-### 8.2 消息压缩优化
+### 8.2 消息压缩优化 ✅
 - **文件**: `backend/agent/compression.py`
 - **改进**:
-  - 使用 tiktoken 精确计算 token
-  - 添加压缩失败的回退策略
-  - 缓存压缩结果
-- [ ] 完成
+  - [x] 使用 tiktoken 精确计算 token（带 fallback）
+  - [x] 添加压缩失败的多级回退策略（LLM → 提取式 → 基础）
+  - [x] 缓存压缩结果（LRU cache）
+- [x] 完成
 
-### 8.3 并发控制
-- **实现**: 使用 asyncio 信号量限制并发
+### 8.3 并发控制 ✅
+- **文件**: `backend/agent/concurrency.py`
+- **实现**:
   ```python
   MAX_CONCURRENT_COMPILATIONS = 3
   compilation_semaphore = asyncio.Semaphore(MAX_CONCURRENT_COMPILATIONS)
@@ -487,7 +487,13 @@
       async with compilation_semaphore:
           ...
   ```
-- [ ] 完成
+- **功能**:
+  - 编译并发限制 (max 3)
+  - API 调用限制 (max 10)
+  - 文件操作限制 (max 20)
+  - 子代理限制 (max 5)
+  - 统计信息和监控端点 `/api/performance`
+- [x] 完成
 
 ---
 

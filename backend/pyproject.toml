@@ -51,6 +51,9 @@ dependencies = [
 
     # Logging & Observability
     "structlog>=24.1.0",
+
+    # Token counting (for compression)
+    "tiktoken>=0.5.0",
 ]
 
 [project.optional-dependencies]

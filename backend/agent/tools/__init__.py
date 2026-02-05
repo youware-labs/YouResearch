@@ -10,6 +10,7 @@ Categories:
 - planning_tools: Task planning and execution management
 - writing_tools: Document structure analysis and citation management
 - utility_tools: General utilities (think)
+- memory_tools: Persistent memory for cross-session learning
 
 Usage:
     from agent.tools import register_all_tools
@@ -35,6 +36,7 @@ from agent.tools.research_tools import register_research_tools
 from agent.tools.planning_tools import register_planning_tools
 from agent.tools.writing_tools import register_writing_tools
 from agent.tools.utility_tools import register_utility_tools
+from agent.tools.memory_tools import register_memory_tools
 
 
 def register_all_tools(agent, check_hitl_func=None):
@@ -51,6 +53,7 @@ def register_all_tools(agent, check_hitl_func=None):
     register_planning_tools(agent)
     register_writing_tools(agent)
     register_utility_tools(agent)
+    register_memory_tools(agent)
 
 
 __all__ = [
@@ -71,4 +74,5 @@ __all__ = [
     "register_planning_tools",
     "register_writing_tools",
     "register_utility_tools",
+    "register_memory_tools",
 ]

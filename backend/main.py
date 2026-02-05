@@ -2686,6 +2686,130 @@ async def clear_memory(request: ClearMemoryRequest):
     return {"success": True, "message": "Memory cleared"}
 
 
+# ============ Persistent Memory Endpoints (Cross-Session Learning) ============
+
+class PersistentMemoryRequest(BaseModel):
+    project_path: str
+
+
+class UpdatePersistentMemoryRequest(BaseModel):
+    project_path: str
+    section: str
+    content: str
+
+
+class GenerateSummaryRequest(BaseModel):
+    project_path: str
+    session_id: str
+
+
+@app.get("/api/persistent-memory")
+async def get_persistent_memory_content(project_path: str):
+    """Get the MEMORY.md content for a project."""
+    from services.persistent_memory import get_persistent_memory
+
+    service = get_persistent_memory(project_path)
+    content = service.read_memory()
+
+    return {
+        "content": content,
+        "stats": {
+            "lines": content.count("\n") + 1 if content else 0,
+            "chars": len(content),
+        }
+    }
+
+
+@app.post("/api/persistent-memory/initialize")
+async def initialize_persistent_memory(request: PersistentMemoryRequest):
+    """Initialize MEMORY.md with default template if it doesn't exist."""
+    from services.persistent_memory import get_persistent_memory
+
+    service = get_persistent_memory(request.project_path)
+    service.initialize_memory()
+
+    return {"success": True, "message": "Memory initialized"}
+
+
+@app.post("/api/persistent-memory/update")
+async def update_persistent_memory(request: UpdatePersistentMemoryRequest):
+    """Add content to a section in MEMORY.md."""
+    from services.persistent_memory import get_persistent_memory
+
+    service = get_persistent_memory(request.project_path)
+
+    # Ensure section has proper markdown header
+    section = request.section
+    if not section.startswith("## "):
+        section = f"## {section}"
+
+    success = service.append_to_memory(section, request.content)
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update memory")
+
+    return {"success": True, "section": section}
+
+
+@app.get("/api/persistent-memory/stats")
+async def get_persistent_memory_stats(project_path: str):
+    """Get persistent memory statistics."""
+    from services.persistent_memory import get_persistent_memory
+
+    service = get_persistent_memory(project_path)
+    stats = service.get_stats()
+
+    return {
+        "memory_md_lines": stats.memory_md_lines,
+        "memory_md_tokens": stats.memory_md_tokens,
+        "session_summary_count": stats.session_summary_count,
+        "total_token_budget": stats.total_token_budget,
+        "used_tokens": stats.used_tokens,
+        "warning": stats.warning,
+        "warning_message": stats.warning_message,
+    }
+
+
+@app.get("/api/persistent-memory/summaries")
+async def get_session_summaries(project_path: str, count: int = 5):
+    """Get recent session summaries."""
+    from services.persistent_memory import get_persistent_memory
+
+    service = get_persistent_memory(project_path)
+    summaries = service.get_recent_summaries(count)
+
+    return {
+        "summaries": [s.to_dict() for s in summaries],
+        "count": len(summaries),
+    }
+
+
+@app.post("/api/persistent-memory/generate-summary")
+async def generate_session_summary_endpoint(request: GenerateSummaryRequest):
+    """Generate and save a summary for a specific session."""
+    from agent.streaming import ChatSession, generate_and_save_session_summary
+
+    # Load the session
+    session = ChatSession.load(request.project_path, request.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {request.session_id} not found")
+
+    # Get PydanticAI messages
+    messages = session.get_pydantic_messages()
+
+    if len(messages) < 4:
+        return {"success": False, "message": "Session too short for summary"}
+
+    # Generate summary
+    await generate_and_save_session_summary(
+        project_path=request.project_path,
+        session_id=request.session_id,
+        messages=messages,
+    )
+
+    return {"success": True, "message": f"Summary generated for session {request.session_id}"}
+
+
 # ============ Literature Verifier Endpoints ============
 
 @app.post("/api/verify-references")

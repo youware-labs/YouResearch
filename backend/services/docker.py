@@ -2,16 +2,27 @@
 Docker LaTeX compilation service.
 
 Runs pdflatex in an isolated Docker container for safe, reproducible compilation.
+Uses concurrency control to limit simultaneous compilations.
 """
 
 import asyncio
 import docker
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import logging
 
+# Lazy import to avoid circular dependency
+if TYPE_CHECKING:
+    pass
+
 logger = logging.getLogger(__name__)
+
+
+def _get_compilation_semaphore():
+    """Lazy import to avoid circular dependency with agent module."""
+    from agent.concurrency import get_compilation_semaphore
+    return get_compilation_semaphore()
 
 # Use pre-built image from Docker Hub (much faster than building)
 # Options:
@@ -160,6 +171,8 @@ class DockerLatex:
         """
         Compile a LaTeX file to PDF.
 
+        Uses concurrency control to limit simultaneous compilations.
+
         Args:
             project_path: Path to the project directory
             filename: Name of the .tex file to compile
@@ -169,6 +182,18 @@ class DockerLatex:
         Returns:
             CompileResult with success status, paths, and logs
         """
+        # Use concurrency control to limit simultaneous compilations
+        async with _get_compilation_semaphore():
+            return await self._compile_internal(project_path, filename, timeout, runs)
+
+    async def _compile_internal(
+        self,
+        project_path: str,
+        filename: str,
+        timeout: int,
+        runs: int,
+    ) -> CompileResult:
+        """Internal compile method (after acquiring semaphore)."""
         # Check if Docker is available
         if not self.docker_available:
             if self.docker_installed:

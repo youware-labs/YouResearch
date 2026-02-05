@@ -368,6 +368,80 @@ def save_session_history_to_disk(project_path: str, session_id: str, messages: l
     session.save()
 
 
+async def generate_and_save_session_summary(
+    project_path: str,
+    session_id: str,
+    messages: list,
+    files_modified: list[str] | None = None,
+    tools_used: list[str] | None = None,
+) -> None:
+    """
+    Generate and save a summary of the session for persistent memory.
+
+    This should be called:
+    1. When a session has significant activity (10+ messages)
+    2. During message compaction
+    3. When explicitly requested
+
+    Args:
+        project_path: Path to the project
+        session_id: Session identifier
+        messages: PydanticAI message history
+        files_modified: List of files modified during session
+        tools_used: List of tools used during session
+    """
+    from services.persistent_memory import (
+        get_persistent_memory,
+        generate_session_summary,
+    )
+
+    # Only generate summary if there's meaningful content
+    if len(messages) < 4:
+        return
+
+    try:
+        # Extract files and tools from messages if not provided
+        if files_modified is None:
+            files_modified = []
+        if tools_used is None:
+            tools_used = []
+
+        # Scan messages for tool usage
+        for msg in messages:
+            if hasattr(msg, "parts"):
+                for part in msg.parts:
+                    if hasattr(part, "tool_name"):
+                        tools_used.append(part.tool_name)
+                        # Track file operations
+                        if part.tool_name in ("edit_file", "write_file"):
+                            args = getattr(part, "args", {})
+                            if isinstance(args, dict):
+                                filepath = args.get("filepath", "")
+                                if filepath and filepath not in files_modified:
+                                    files_modified.append(filepath)
+
+        # Generate summary
+        summary = await generate_session_summary(
+            session_id=session_id,
+            messages=messages,
+            files_modified=files_modified,
+            tools_used=tools_used,
+        )
+
+        # Save to persistent memory
+        memory_service = get_persistent_memory(project_path)
+        memory_service.add_session_summary(summary)
+
+        logger.info(
+            f"Generated session summary for {session_id}: "
+            f"{len(summary.summary)} chars, {len(summary.key_decisions)} decisions"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to generate session summary: {e}")
+        # Don't raise - summary generation is non-critical
+
+
 def convert_simple_history(history: list) -> list:
     """
     Convert simple history format to PydanticAI message format.

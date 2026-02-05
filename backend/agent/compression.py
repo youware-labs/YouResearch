@@ -5,10 +5,11 @@ Automatically compresses old messages when approaching context limit.
 Uses a smaller model (Haiku) to summarize conversation history.
 
 Architecture:
-    1. TokenCounter estimates tokens in message history
+    1. TokenCounter estimates tokens in message history (with tiktoken support)
     2. MessageCompressor checks if compression is needed
     3. If threshold exceeded, older messages are summarized
     4. Summary replaces old messages, recent turns preserved
+    5. Compression results are cached for performance
 
 Usage:
     compressor = MessageCompressor()
@@ -16,8 +17,11 @@ Usage:
         messages = await compressor.compress(messages)
 """
 
+import hashlib
+import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from functools import lru_cache
+from typing import TYPE_CHECKING, Optional
 
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
@@ -34,9 +38,24 @@ from agent.providers import get_haiku_model
 if TYPE_CHECKING:
     pass
 
+logger = logging.getLogger(__name__)
+
 
 # Type alias for message list
 Messages = list[ModelRequest | ModelResponse]
+
+# Try to import tiktoken for accurate token counting
+_tiktoken_encoder = None
+_tiktoken_available = False
+
+try:
+    import tiktoken
+    # Use cl100k_base which is used by Claude and GPT-4
+    _tiktoken_encoder = tiktoken.get_encoding("cl100k_base")
+    _tiktoken_available = True
+    logger.info("tiktoken available for accurate token counting")
+except ImportError:
+    logger.info("tiktoken not available, using character-based estimation")
 
 
 # =============================================================================
@@ -64,6 +83,12 @@ class CompressionConfig:
     # Maximum length for the summary
     max_summary_tokens: int = 2000
 
+    # Enable compression result caching
+    enable_cache: bool = True
+
+    # Maximum cache entries
+    max_cache_entries: int = 100
+
 
 # =============================================================================
 # Token Counter
@@ -73,13 +98,23 @@ class TokenCounter:
     """
     Estimate token count for messages.
 
-    Uses a simple character-based heuristic. For more accurate counting,
-    consider using tiktoken or Anthropic's token counting API.
+    Uses tiktoken for accurate counting if available, otherwise falls back
+    to character-based heuristic.
     """
 
-    # Approximate characters per token for Claude models
-    # This is a rough estimate - actual ratio varies by content
+    # Approximate characters per token for Claude models (fallback)
     CHARS_PER_TOKEN = 4
+
+    def __init__(self):
+        self._use_tiktoken = _tiktoken_available
+        self._encoder = _tiktoken_encoder
+
+    @lru_cache(maxsize=1000)
+    def _count_text_cached(self, text: str) -> int:
+        """Count tokens in text with caching."""
+        if self._use_tiktoken and self._encoder:
+            return len(self._encoder.encode(text))
+        return len(text) // self.CHARS_PER_TOKEN
 
     def count(self, messages: Messages) -> int:
         """
@@ -91,37 +126,42 @@ class TokenCounter:
         Returns:
             Estimated token count
         """
-        total_chars = 0
+        total_tokens = 0
 
         for msg in messages:
             if isinstance(msg, (ModelRequest, ModelResponse)):
                 for part in msg.parts:
-                    total_chars += self._count_part(part)
+                    total_tokens += self._count_part(part)
 
-        return total_chars // self.CHARS_PER_TOKEN
+        return total_tokens
 
     def _count_part(self, part) -> int:
-        """Count characters in a message part."""
+        """Count tokens in a message part."""
         if isinstance(part, TextPart):
-            return len(part.content)
+            return self._count_text_cached(part.content)
         elif isinstance(part, UserPromptPart):
-            return len(part.content)
+            return self._count_text_cached(part.content)
         elif isinstance(part, ToolCallPart):
             # Tool name + args
             args_str = str(part.args) if part.args else ""
-            return len(part.tool_name) + len(args_str)
+            text = part.tool_name + args_str
+            return self._count_text_cached(text)
         elif isinstance(part, ToolReturnPart):
             content = part.content
             if isinstance(content, str):
-                return len(content)
-            return len(str(content))
+                return self._count_text_cached(content)
+            return self._count_text_cached(str(content))
         else:
             # Fallback for unknown parts
-            return len(str(part))
+            return self._count_text_cached(str(part))
 
     def count_text(self, text: str) -> int:
         """Count tokens in a plain text string."""
-        return len(text) // self.CHARS_PER_TOKEN
+        return self._count_text_cached(text)
+
+    def clear_cache(self) -> None:
+        """Clear the token counting cache."""
+        self._count_text_cached.cache_clear()
 
 
 # =============================================================================
@@ -188,6 +228,24 @@ def get_compactor_agent() -> Agent:
 # Message Compressor
 # =============================================================================
 
+# Cache for compression results (message hash -> summary)
+_compression_cache: dict[str, str] = {}
+
+
+def _compute_messages_hash(messages: Messages) -> str:
+    """Compute a hash for a list of messages for caching."""
+    content_parts = []
+    for msg in messages:
+        if isinstance(msg, (ModelRequest, ModelResponse)):
+            for part in msg.parts:
+                if isinstance(part, (TextPart, UserPromptPart)):
+                    content_parts.append(part.content[:100])  # Use first 100 chars
+                elif isinstance(part, ToolCallPart):
+                    content_parts.append(f"{part.tool_name}:{part.tool_call_id}")
+    content = "|".join(content_parts)
+    return hashlib.md5(content.encode()).hexdigest()
+
+
 @dataclass
 class MessageCompressor:
     """
@@ -198,6 +256,12 @@ class MessageCompressor:
     2. When threshold is exceeded, splits history into old/recent
     3. Summarizes old messages using a smaller model
     4. Returns compressed history with summary + recent messages
+    5. Caches compression results for performance
+
+    Features:
+    - tiktoken-based accurate token counting (with fallback)
+    - Compression result caching
+    - Graceful fallback on compression failure
     """
 
     config: CompressionConfig = field(default_factory=CompressionConfig)
@@ -239,6 +303,8 @@ class MessageCompressor:
             "max_tokens": self.config.max_tokens,
             "usage_percent": round(tokens / self.config.max_tokens * 100, 1),
             "should_compress": tokens > threshold,
+            "using_tiktoken": self.counter._use_tiktoken,
+            "cache_size": len(_compression_cache),
         }
 
     async def compress(self, messages: Messages) -> Messages:
@@ -263,13 +329,127 @@ class MessageCompressor:
         old_messages = messages[:-keep_count]
         recent_messages = messages[-keep_count:]
 
-        # Summarize old messages
-        summary = await self._summarize(old_messages)
+        # Try to get cached summary
+        summary: Optional[str] = None
+        cache_key: Optional[str] = None
+
+        if self.config.enable_cache:
+            cache_key = _compute_messages_hash(old_messages)
+            summary = _compression_cache.get(cache_key)
+            if summary:
+                logger.debug(f"Using cached compression result (key: {cache_key[:8]})")
+
+        # Summarize old messages if not cached
+        if summary is None:
+            summary = await self._summarize_with_fallback(old_messages)
+
+            # Cache the result
+            if self.config.enable_cache and cache_key:
+                # Limit cache size
+                if len(_compression_cache) >= self.config.max_cache_entries:
+                    # Remove oldest entry (FIFO)
+                    oldest_key = next(iter(_compression_cache))
+                    del _compression_cache[oldest_key]
+                _compression_cache[cache_key] = summary
 
         # Create summary as a system-style context message
         summary_messages = self._create_summary_messages(summary)
 
         return summary_messages + recent_messages
+
+    async def _summarize_with_fallback(self, messages: Messages) -> str:
+        """
+        Summarize messages with multiple fallback strategies.
+
+        Args:
+            messages: Messages to summarize
+
+        Returns:
+            Summary text (always returns something, never raises)
+        """
+        # Strategy 1: Try LLM-based summarization
+        try:
+            summary = await self._summarize(messages)
+            if summary and len(summary) > 50:  # Valid summary
+                return summary
+        except Exception as e:
+            logger.warning(f"LLM summarization failed: {e}")
+
+        # Strategy 2: Extractive summary (take key excerpts)
+        try:
+            summary = self._extractive_summary(messages)
+            if summary:
+                return summary
+        except Exception as e:
+            logger.warning(f"Extractive summary failed: {e}")
+
+        # Strategy 3: Basic fallback (just message count)
+        return self._basic_fallback_summary(messages)
+
+    def _extractive_summary(self, messages: Messages) -> str:
+        """
+        Create an extractive summary by selecting key message excerpts.
+
+        Used as fallback when LLM summarization fails.
+        """
+        user_messages = []
+        assistant_messages = []
+        tool_calls = []
+
+        for msg in messages:
+            if isinstance(msg, ModelRequest):
+                for part in msg.parts:
+                    if isinstance(part, UserPromptPart):
+                        user_messages.append(self._truncate(part.content, 200))
+            elif isinstance(msg, ModelResponse):
+                for part in msg.parts:
+                    if isinstance(part, TextPart):
+                        assistant_messages.append(self._truncate(part.content, 200))
+                    elif isinstance(part, ToolCallPart):
+                        tool_calls.append(part.tool_name)
+
+        lines = [
+            "## Conversation Summary (Extractive)",
+            "",
+            "### User Requests",
+        ]
+
+        # Include first and last few user messages
+        for msg in user_messages[:2] + user_messages[-2:]:
+            lines.append(f"- {msg}")
+
+        if tool_calls:
+            lines.extend([
+                "",
+                "### Tools Used",
+                f"- {', '.join(set(tool_calls))}",
+            ])
+
+        if assistant_messages:
+            lines.extend([
+                "",
+                "### Key Responses",
+            ])
+            for msg in assistant_messages[-2:]:  # Last 2 responses
+                lines.append(f"- {msg}")
+
+        lines.extend([
+            "",
+            f"(Total: {len(messages)} messages compressed)",
+        ])
+
+        return "\n".join(lines)
+
+    def _basic_fallback_summary(self, messages: Messages) -> str:
+        """
+        Create a basic fallback summary when all else fails.
+        """
+        return f"""## Conversation Summary (Basic)
+
+Previous conversation contained {len(messages)} messages.
+Context may be incomplete due to compression error.
+
+Please continue from the recent messages below."""
 
     async def _summarize(self, messages: Messages) -> str:
         """
@@ -297,12 +477,8 @@ The conversation has {len(messages)} messages.
 
 Create a concise summary following your instructions."""
 
-        try:
-            result = await compactor.run(prompt)
-            return result.output or "Summary unavailable"
-        except Exception as e:
-            # Fallback to basic summary on error
-            return f"[Compression error: {e}]\n\nPrevious conversation contained {len(messages)} messages."
+        result = await compactor.run(prompt)
+        return result.output or "Summary unavailable"
 
     def _format_for_summary(self, messages: Messages) -> str:
         """
