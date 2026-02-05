@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # Load .env file before other imports
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from sse_starlette.sse import EventSourceResponse
@@ -1536,6 +1536,235 @@ async def get_hitl_config() -> dict:
         "preview_only": list(manager.config.preview_only),
         "approval_timeout": manager.config.approval_timeout,
         "auto_approve_on_timeout": manager.config.auto_approve_on_timeout,
+    }
+
+
+# ============ HITL Async (Non-blocking) Endpoints ============
+
+class HITLBatchApproveRequest(BaseModel):
+    operation_ids: list[str]
+
+
+class HITLBatchRejectRequest(BaseModel):
+    operation_ids: list[str]
+    reason: str = "User rejected"
+
+
+class HITLExecuteRequest(BaseModel):
+    operation_id: str
+    project_path: str
+
+
+class HITLBatchExecuteRequest(BaseModel):
+    operation_ids: list[str]
+    project_path: str
+
+
+@app.websocket("/ws/hitl/{session_id}")
+async def hitl_websocket(websocket: WebSocket, session_id: str):
+    """
+    WebSocket endpoint for real-time HITL notifications.
+
+    Connect to receive notifications about:
+    - New pending operations
+    - Status changes (approved/rejected)
+    - Execution results
+
+    Message format:
+    {
+        "type": "pending" | "status" | "result",
+        "data": { ... }
+    }
+    """
+    from agent.hitl_ws import get_hitl_ws_manager
+
+    manager = get_hitl_ws_manager()
+    await manager.connect(websocket, session_id)
+
+    try:
+        while True:
+            # Keep connection alive by receiving pings
+            data = await websocket.receive_text()
+            # Could handle client messages here if needed
+    except WebSocketDisconnect:
+        await manager.disconnect(websocket, session_id)
+
+
+@app.get("/api/hitl/v2/pending")
+async def get_pending_operations_v2(session_id: str) -> list[dict]:
+    """
+    Get all pending operations for a session (async HITL v2).
+
+    Uses the new HITLStore instead of the blocking HITLManager.
+    Returns operations with diff preview data.
+    """
+    from agent.hitl_store import get_hitl_store
+
+    store = get_hitl_store()
+    pending = await store.get_pending_by_session(session_id)
+
+    return [op.to_dict() for op in pending]
+
+
+@app.get("/api/hitl/v2/operation/{operation_id}")
+async def get_operation_v2(operation_id: str) -> dict:
+    """
+    Get a specific operation by ID (async HITL v2).
+    """
+    from agent.hitl_store import get_hitl_store
+
+    store = get_hitl_store()
+    operation = await store.get_operation(operation_id)
+
+    if not operation:
+        raise HTTPException(status_code=404, detail="Operation not found")
+
+    return operation.to_dict()
+
+
+@app.post("/api/hitl/v2/approve")
+async def approve_operation_v2(request: HITLApproveRequest) -> dict:
+    """
+    Approve a pending operation (async HITL v2).
+
+    After approval, call /api/hitl/v2/execute to execute the operation.
+    """
+    from agent.hitl_store import get_hitl_store
+
+    store = get_hitl_store()
+    success = await store.approve(
+        request.request_id,
+        modified_args=request.modified_args,
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail="Operation not found, not pending, or expired"
+        )
+
+    return {
+        "success": True,
+        "operation_id": request.request_id,
+        "status": "approved",
+    }
+
+
+@app.post("/api/hitl/v2/reject")
+async def reject_operation_v2(request: HITLRejectRequest) -> dict:
+    """
+    Reject a pending operation (async HITL v2).
+    """
+    from agent.hitl_store import get_hitl_store
+
+    store = get_hitl_store()
+    success = await store.reject(
+        request.request_id,
+        reason=request.reason,
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail="Operation not found or not pending"
+        )
+
+    return {
+        "success": True,
+        "operation_id": request.request_id,
+        "status": "rejected",
+    }
+
+
+@app.post("/api/hitl/v2/batch-approve")
+async def batch_approve_operations_v2(request: HITLBatchApproveRequest) -> dict:
+    """
+    Approve multiple operations at once (async HITL v2).
+
+    Returns results for each operation.
+    """
+    from agent.hitl_store import get_hitl_store
+
+    store = get_hitl_store()
+    results = await store.batch_approve(request.operation_ids)
+
+    return {
+        "success": all(results.values()),
+        "results": results,
+        "approved": sum(1 for v in results.values() if v),
+        "failed": sum(1 for v in results.values() if not v),
+    }
+
+
+@app.post("/api/hitl/v2/batch-reject")
+async def batch_reject_operations_v2(request: HITLBatchRejectRequest) -> dict:
+    """
+    Reject multiple operations at once (async HITL v2).
+    """
+    from agent.hitl_store import get_hitl_store
+
+    store = get_hitl_store()
+    results = await store.batch_reject(
+        request.operation_ids,
+        reason=request.reason,
+    )
+
+    return {
+        "success": all(results.values()),
+        "results": results,
+        "rejected": sum(1 for v in results.values() if v),
+        "failed": sum(1 for v in results.values() if not v),
+    }
+
+
+@app.post("/api/hitl/v2/execute")
+async def execute_operation_v2(request: HITLExecuteRequest) -> dict:
+    """
+    Execute an approved operation (async HITL v2).
+
+    The operation must be in APPROVED status.
+    """
+    from agent.hitl_executor import get_hitl_executor
+
+    executor = get_hitl_executor()
+
+    try:
+        result = await executor.execute_operation(
+            request.operation_id,
+            request.project_path,
+        )
+        return {
+            "success": True,
+            "operation_id": request.operation_id,
+            "result": result,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/hitl/v2/batch-execute")
+async def batch_execute_operations_v2(request: HITLBatchExecuteRequest) -> dict:
+    """
+    Execute multiple approved operations (async HITL v2).
+    """
+    from agent.hitl_executor import get_hitl_executor
+
+    executor = get_hitl_executor()
+    results = await executor.execute_batch(
+        request.operation_ids,
+        request.project_path,
+    )
+
+    success_count = sum(1 for r in results.values() if r.get("success"))
+    fail_count = len(results) - success_count
+
+    return {
+        "success": fail_count == 0,
+        "results": results,
+        "executed": success_count,
+        "failed": fail_count,
     }
 
 

@@ -37,6 +37,7 @@ import VibeResearchView from './VibeResearchView';
 import CitationVerifierPanel from './CitationVerifierPanel';
 import CommandPalette from './CommandPalette';
 import TaskList, { Task } from './TaskList';
+import ApprovalQueuePanel from './ApprovalQueuePanel';
 import { api, VibeSessionSummary, ChatSession } from '../lib/api';
 import VenuePreferenceModal from './VenuePreferenceModal';
 import DomainPreferenceModal from './DomainPreferenceModal';
@@ -1445,7 +1446,7 @@ export default function AgentPanel({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       const nativeEvent = e.nativeEvent as KeyboardEvent;
-      if (e.isComposing || nativeEvent.isComposing || nativeEvent.keyCode === 229) {
+      if (nativeEvent.isComposing || nativeEvent.keyCode === 229) {
         return;
       }
       // Command palette navigation
@@ -1672,6 +1673,27 @@ export default function AgentPanel({
           </div>
         )}
       </div>
+
+          {/* Async HITL Approval Queue */}
+          {projectPath && selectedChatSession && (
+            <ApprovalQueuePanel
+              sessionId={selectedChatSession}
+              projectPath={projectPath}
+              onViewDiff={(operation) => {
+                // Convert operation to PendingEdit format for Editor
+                if (operation.diff_preview && operation.file_path && onApprovalRequest) {
+                  const toolArgs = operation.tool_args as { old_string?: string; new_string?: string; content?: string; filepath?: string };
+                  onApprovalRequest({
+                    request_id: operation.operation_id,
+                    filepath: operation.file_path,
+                    old_string: toolArgs.old_string || operation.diff_preview.old_content || '',
+                    new_string: toolArgs.new_string || toolArgs.content || operation.diff_preview.new_content || '',
+                  });
+                }
+              }}
+              onClearDiff={onApprovalResolved}
+            />
+          )}
 
           {/* Chat Input */}
           <div className="border-t border-black/6 p-3 bg-white">

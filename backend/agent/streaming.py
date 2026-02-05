@@ -558,6 +558,58 @@ class ApprovalResolvedEvent(StreamEvent):
 
 
 @dataclass
+class PendingOperationEvent(StreamEvent):
+    """
+    Async HITL: Operation queued for approval (non-blocking).
+
+    Includes diff preview for file operations.
+    """
+    type: Literal["pending_operation"] = "pending_operation"
+    operation_id: str = ""
+    session_id: str = ""
+    tool_name: str = ""
+    tool_args: dict = None
+    file_path: str | None = None
+    diff_preview: dict | None = None  # {old_content, new_content}
+    expires_at: str = ""
+
+    def __post_init__(self):
+        if self.tool_args is None:
+            self.tool_args = {}
+
+    def to_dict(self) -> dict:
+        return {
+            "type": self.type,
+            "operation_id": self.operation_id,
+            "session_id": self.session_id,
+            "tool_name": self.tool_name,
+            "tool_args": self.tool_args,
+            "file_path": self.file_path,
+            "diff_preview": self.diff_preview,
+            "expires_at": self.expires_at,
+        }
+
+
+@dataclass
+class OperationExecutedEvent(StreamEvent):
+    """Async HITL: Operation was executed after approval."""
+    type: Literal["operation_executed"] = "operation_executed"
+    operation_id: str = ""
+    status: str = ""  # "completed", "failed"
+    result: str | None = None
+    error: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "type": self.type,
+            "operation_id": self.operation_id,
+            "status": self.status,
+            "result": self.result,
+            "error": self.error,
+        }
+
+
+@dataclass
 class SteeringEvent(StreamEvent):
     """Steering message was injected into the conversation."""
     type: Literal["steering"] = "steering"
@@ -709,6 +761,7 @@ async def stream_agent_response(
     message_history: list = None,
     auto_compress: bool = True,
     enable_hitl: bool = True,  # Enabled by default for file safety
+    hitl_mode: str = "blocking",  # "blocking" (legacy) or "async" (non-blocking)
     enable_steering: bool = False,
     enable_planning: bool = True,
     session_id: str | None = None,
@@ -727,6 +780,7 @@ async def stream_agent_response(
         message_history: Optional conversation history for context
         auto_compress: Whether to automatically compress long histories (default: True)
         enable_hitl: Whether to enable human-in-the-loop approval (default: True)
+        hitl_mode: "blocking" for legacy or "async" for non-blocking mode
         enable_steering: Whether to check for steering messages (default: False)
         session_id: Session ID for steering isolation (optional)
         provider_config: Optional provider configuration dict with keys:
@@ -762,28 +816,63 @@ async def stream_agent_response(
 
     # Set up HITL if enabled
     hitl_manager = None
+    hitl_store = None
+    hitl_ws = None
     event_queue: Optional[asyncio.Queue] = None
 
-    logger.info(f"HITL enabled: {enable_hitl}")
+    logger.info(f"HITL enabled: {enable_hitl}, mode: {hitl_mode}")
 
     if enable_hitl:
-        from agent.hitl import get_hitl_manager
-
-        hitl_manager = get_hitl_manager()
         event_queue = asyncio.Queue()
-        logger.info(f"HITL manager created: {hitl_manager}, approval_required={hitl_manager.config.approval_required}")
 
-        # Set up callback to emit approval events to stream
-        async def on_approval_request(request):
-            logger.info(f"HITL approval request: tool={request.tool_name}, args_keys={list(request.tool_args.keys())}")
-            logger.info(f"HITL tool_args: old_string={len(request.tool_args.get('old_string', ''))} chars, new_string={len(request.tool_args.get('new_string', ''))} chars")
-            await event_queue.put(ApprovalRequiredEvent(
-                request_id=request.request_id,
-                tool_name=request.tool_name,
-                tool_args=request.tool_args,
-            ))
+        if hitl_mode == "async":
+            # Async mode: Use HITLStore for non-blocking operations
+            from agent.hitl_store import get_hitl_store
+            from agent.hitl_ws import get_hitl_ws_manager
 
-        hitl_manager.set_event_callback(on_approval_request)
+            hitl_store = get_hitl_store()
+            hitl_ws = get_hitl_ws_manager()
+            logger.info(f"HITL async mode: store={hitl_store}, ws={hitl_ws}")
+
+            # Set up callbacks for async store
+            async def on_operation_added(operation):
+                logger.info(f"HITL async: operation added - {operation.tool_name} ({operation.operation_id})")
+                await event_queue.put(ApprovalRequiredEvent(
+                    request_id=operation.operation_id,
+                    tool_name=operation.tool_name,
+                    tool_args=operation.tool_args,
+                ))
+
+            async def on_status_changed(operation):
+                logger.info(f"HITL async: status changed - {operation.operation_id} -> {operation.status.value}")
+                await event_queue.put(ApprovalResolvedEvent(
+                    request_id=operation.operation_id,
+                    status=operation.status.value,
+                    tool_name=operation.tool_name,
+                ))
+
+            hitl_store.set_callbacks(
+                on_operation_added=on_operation_added,
+                on_status_changed=on_status_changed,
+            )
+        else:
+            # Blocking mode (legacy)
+            from agent.hitl import get_hitl_manager
+
+            hitl_manager = get_hitl_manager()
+            logger.info(f"HITL blocking mode: manager={hitl_manager}, approval_required={hitl_manager.config.approval_required}")
+
+            # Set up callback to emit approval events to stream
+            async def on_approval_request(request):
+                logger.info(f"HITL approval request: tool={request.tool_name}, args_keys={list(request.tool_args.keys())}")
+                logger.info(f"HITL tool_args: old_string={len(request.tool_args.get('old_string', ''))} chars, new_string={len(request.tool_args.get('new_string', ''))} chars")
+                await event_queue.put(ApprovalRequiredEvent(
+                    request_id=request.request_id,
+                    tool_name=request.tool_name,
+                    tool_args=request.tool_args,
+                ))
+
+            hitl_manager.set_event_callback(on_approval_request)
 
     # Set up research preference HITL callbacks (domain + venue)
     if event_queue:
@@ -896,11 +985,14 @@ async def stream_agent_response(
         project_path=project_path,
         project_name=project_name,
         hitl_manager=hitl_manager,
+        hitl_store=hitl_store,
+        hitl_ws=hitl_ws,
+        hitl_mode=hitl_mode,
         plan_manager=plan_manager,
         session_id=session_id or "default",
         provider_name=provider_name,
     )
-    logger.info(f"Created AuraDeps with hitl_manager={deps.hitl_manager}, provider={provider_name}")
+    logger.info(f"Created AuraDeps with hitl_mode={deps.hitl_mode}, hitl_manager={deps.hitl_manager}, hitl_store={deps.hitl_store}, provider={provider_name}")
 
     # Use session-based history instead of frontend history
     # This preserves the full PydanticAI message structure including tool calls
@@ -1214,6 +1306,7 @@ async def stream_agent_sse(
     project_name: str = "",
     message_history: list = None,
     enable_hitl: bool = True,  # Enabled by default for file safety
+    hitl_mode: str = "blocking",  # "blocking" (legacy) or "async" (non-blocking)
     enable_steering: bool = False,
     session_id: str | None = None,
     provider_config: dict | None = None,
@@ -1253,6 +1346,7 @@ async def stream_agent_sse(
         project_name=project_name,
         message_history=message_history,
         enable_hitl=enable_hitl,
+        hitl_mode=hitl_mode,
         enable_steering=enable_steering,
         session_id=session_id,
         provider_config=provider_config,

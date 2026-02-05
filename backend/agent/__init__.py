@@ -1,6 +1,7 @@
 # Agent module (Phase 2 + Phase 3)
 
-from agent.pydantic_agent import aura_agent, AuraDeps
+from agent.deps import AuraDeps
+from agent.pydantic_agent import aura_agent
 from agent.streaming import (
     stream_agent_response,
     stream_agent_sse,
